@@ -1,0 +1,18 @@
+# Compiled binaries produced by gcc/mpicc (built with -o server, -o client, etc. —
+# these have no file extension on Linux, so they're matched by name here)
+server
+client
+client_1
+client_2
+client_3
+mpi-latency
+mpi-bw
+
+# Object files
+*.o
+
+# Runtime logs from test runs
+*.log
+
+# Slide deck - generated deliverable, not source, not tracked in git
+*.pptx
