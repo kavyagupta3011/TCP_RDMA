@@ -4,7 +4,7 @@
  * fires a burst of messages of a given size at rank 1 back-to-back using
  * non-blocking sends so it doesn't wait for each one individually, then
  * waits for all of them to actually complete before timing stops -
- * exactly the same idea as OSU's osu_bw and your professor's mpi-bw.c.
+ * output format maintained the same
  *
  * Build:  mpicc -O2 -Wall -Wextra -o mpi-bw mpi-bw.c
  * Run:    mpirun -np 2 ./mpi-bw
