@@ -4,7 +4,7 @@
  * a message of a given size to rank 1 and blocks waiting for it to be
  * echoed straight back; the round trip is timed and divided by 2 to get
  * a one-way latency estimate, exactly like ib_write_lat/OSU's
- * osu_latency and like your professor's mpi-latency.c. Run it under
+ * osu_latency. Run it under
  * different `mpirun -genv I_MPI_FABRICS=...` (Intel MPI) or plain
  * `mpirun --mca btl ...` (OpenMPI) settings to compare transports - the
  * benchmark code itself never changes, only which transport MPI uses
