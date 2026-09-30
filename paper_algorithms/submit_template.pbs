@@ -1,0 +1,50 @@
+#!/bin/bash
+# submit_template.pbs
+#
+# GENERIC TEMPLATE -- do not submit as-is. The lines marked "EDIT ME" below
+# depend on your cluster's actual queue names, GPU resource syntax, and
+# module names, none of which I can know without seeing the output of
+# check_node.sh run on your node. Run that script, paste back its output,
+# and I'll turn this into a submission script that actually matches your
+# cluster.
+#
+# What this script does, once filled in: builds and runs every algorithm
+# in paper_algorithms/ back-to-back on one compute node, saving each
+# program's output to its own log file, so you get one job submission that
+# produces all six results (5 techniques + baseline) for a given message
+# size.
+
+#PBS -N paper_algorithms
+#PBS -l select=1:ncpus=8:ngpus=4
+#PBS -l walltime=00:30:00
+#PBS -q gpu
+#PBS -j oe
+#PBS -o paper_algorithms.log
+
+# ---- EDIT ME: module load lines ----
+# Most clusters require loading CUDA explicitly before nvcc is on PATH.
+# Replace with whatever `module avail` showed in check_node.sh's output.
+module load cuda
+
+cd "$PBS_O_WORKDIR"/paper_algorithms || exit 1
+
+NUMGPUS=4        # EDIT ME: match #PBS -l select=... ngpus= above
+NUMFLOATS=65536
+ITERS=100
+
+run_one () {
+    local dir="$1"
+    local bin="$2"
+    echo "===== $dir ====="
+    ( cd "$dir" && make ARCH=native && ./"$bin" "$NUMGPUS" "$NUMFLOATS" "$ITERS" )
+    echo
+}
+
+run_one Baseline_Barrier   baseline_barrier_allreduce
+run_one LL                 ll_allreduce
+run_one Sentinel            sentinel_allreduce
+run_one Twoshot_LL          twoshot_ll_allreduce
+run_one Twoshot_Sentinel    twoshot_sentinel_allreduce
+run_one LL128_Atomic        ll128_atomic_allreduce
+
+echo "All done -- see paper_algorithms.log (or the -o path above) for full output."
