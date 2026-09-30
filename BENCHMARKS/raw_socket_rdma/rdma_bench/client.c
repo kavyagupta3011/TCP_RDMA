@@ -8,7 +8,11 @@
 #include <rdma/rdma_cma.h>
 #include <infiniband/verbs.h>
 
-#define SERVER_IP   "127.0.0.1"
+#define SERVER_IP   "10.1.2.1"  /* real ib0 (InfiniBand) address on master.local - RDMA CM
+                                 * needs a genuine RDMA-capable address, not the 127.0.0.1
+                                 * TCP/IP loopback (tied to "lo"), or rdma_connect() gets
+                                 * rejected with RDMA_CM_EVENT_REJECTED. Only change this if
+                                 * you're pointing the client at a different node. */
 #define PORT        20005
 #define MAX_SIZE    (4 * 1024 * 1024)
 #define NOTIFY_SIZE 64
