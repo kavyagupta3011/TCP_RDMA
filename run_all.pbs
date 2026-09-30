@@ -1,0 +1,88 @@
+#!/bin/sh
+#PBS -N rdma_allreduce
+#PBS -l nodes=3:ppn=1
+#PBS -q workq
+#PBS -l walltime=00:15:00
+#PBS -S /bin/bash
+
+set -u
+BASE="/home/student4/IMT2023016/paper_algorithms_v2"
+LOGDIR="$BASE/run_logs"
+mkdir -p "$LOGDIR"
+rm -f "$LOGDIR"/*.log
+
+N=$(sort -u "$PBS_NODEFILE" | wc -l)
+echo "Allocated node count: $N"
+
+# pbsdsh on this cluster does NOT relay the remote command's stdout back to
+# us (confirmed via debug_mesh.pbs: every test returned exit 0 but zero
+# output). So instead of capturing pbsdsh's output directly, every task
+# below writes its own result to a file in this shared (NFS) folder, and we
+# read those files back afterward -- this works because the job's own home
+# directory is visible from every node.
+
+echo ""
+echo "--- Discovering each node's hostname + InfiniBand (10.1.x.x) address ---"
+# 'ip' isn't on the default PATH inside a pbsdsh task on this cluster (we
+# confirmed: "bash: ip: command not found", exit 127). 'hostname' works
+# fine though, so use 'hostname -I' (lists every IP the machine has) as the
+# primary source, with a PATH-fixed 'ip addr' and a plain sysfs interface
+# listing as backups -- then just grep the whole thing for a 10.1.x.x
+# address, since that's the known IPoIB prefix on this cluster.
+for i in $(seq 0 $((N-1))); do
+    pbsdsh -n "$i" -- bash -c "{ hostname; echo '---hostname -I---'; hostname -I 2>&1; echo '---ip addr (PATH-fixed)---'; PATH=/sbin:/usr/sbin:/bin:/usr/bin:\$PATH ip addr 2>&1; echo '---/sys/class/net---'; ls /sys/class/net 2>&1; } > '$LOGDIR/mesh_${i}.log'" &
+done
+wait
+
+IPS=()
+for i in $(seq 0 $((N-1))); do
+    HOST=$(sed -n 1p "$LOGDIR/mesh_${i}.log")
+    IP=$(grep -oE '10\.1\.2\.[0-9]+' "$LOGDIR/mesh_${i}.log" | head -1)
+    IPS+=("$IP")
+    echo "rank $i -> host $HOST -> ib0 $IP"
+done
+
+echo ""
+echo "--- Full discovery dump for node 0 (in case no 10.1.x.x address was found above) ---"
+cat "$LOGDIR/mesh_0.log"
+
+BASE_PORT=20000
+NUM_FLOATS=65536
+ITERS=100
+
+run_program() {
+    local dir="$1" bin="$2" ranks="$3"
+    echo ""
+    echo "=== $dir ($ranks ranks) ==="
+    for i in $(seq 0 $((ranks-1))); do
+        CMD="'$BASE/$dir/$bin' '$i' '$ranks' '$BASE_PORT' ${IPS[@]} '$NUM_FLOATS' '$ITERS' > '$LOGDIR/${dir}_rank${i}.log' 2>&1"
+        pbsdsh -n "$i" -- bash -c "$CMD" &
+    done
+    wait
+    for i in $(seq 0 $((ranks-1))); do
+        echo "--- $dir rank $i ---"
+        cat "$LOGDIR/${dir}_rank${i}.log" 2>/dev/null || echo "(missing log file)"
+    done
+}
+
+run_program LL ll_allreduce_rdma "$N"
+run_program Sentinel sentinel_allreduce_rdma "$N"
+run_program Twoshot_LL twoshot_ll_allreduce_rdma "$N"
+run_program Twoshot_Sentinel twoshot_sentinel_allreduce_rdma "$N"
+run_program LL128_Atomic ll128_atomic_allreduce_rdma "$N"
+run_program Baseline_Barrier baseline_barrier_rdma "$N"
+
+echo ""
+echo "=== Bidirectional_DoubleBuffering (2 ranks only) ==="
+CMD0="'$BASE/Bidirectional_DoubleBuffering/bidir_doublebuffer_rdma' 0 2 '$BASE_PORT' ${IPS[0]} ${IPS[1]} 262144 8 '$ITERS' > '$LOGDIR/bidir_rank0.log' 2>&1"
+CMD1="'$BASE/Bidirectional_DoubleBuffering/bidir_doublebuffer_rdma' 1 2 '$BASE_PORT' ${IPS[0]} ${IPS[1]} 262144 8 '$ITERS' > '$LOGDIR/bidir_rank1.log' 2>&1"
+pbsdsh -n 0 -- bash -c "$CMD0" &
+pbsdsh -n 1 -- bash -c "$CMD1" &
+wait
+echo "--- bidir rank 0 ---"
+cat "$LOGDIR/bidir_rank0.log" 2>/dev/null || echo "(missing log file)"
+echo "--- bidir rank 1 ---"
+cat "$LOGDIR/bidir_rank1.log" 2>/dev/null || echo "(missing log file)"
+
+echo ""
+echo "All algorithms finished."
