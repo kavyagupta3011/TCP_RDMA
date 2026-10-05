@@ -1,36 +1,58 @@
-#!/bin/sh
+#!/bin/bash
 #PBS -N rdma_allreduce
 #PBS -l nodes=3:ppn=1
 #PBS -q workq
-#PBS -l walltime=00:15:00
+#PBS -l walltime=00:45:00
 #PBS -S /bin/bash
 
+# =============================================================================
+# ONE script for every experiment. Choose what to run at submit time with
+# environment variables (qsub -v). Lists are COLON-separated (a comma would be
+# taken as the next variable by qsub -v).
+#
+#   PROGRAMS  which algorithms to run (default: all seven)
+#               Baseline_Barrier : LL : Sentinel : Twoshot_LL : Twoshot_Sentinel :
+#               LL128_Atomic : Bidirectional_DoubleBuffering : Atomic_Probe
+#   SIZES     message sizes in FLOATS (default 32:256:1024:4096:16384
+#             = 128 B, 1 KiB, 4 KiB, 16 KiB, 64 KiB)
+#   ITERS     timed iterations per run            (default 1000)
+#   TIMEOUT   per-run hard limit in seconds       (default 90; a hang shows as exit=124)
+#   BASE      folder holding the program folders
+#             (default /home/student4/IMT2023016/paper_algorithms_v2)
+#
+# Number of ranks = number of nodes you ask for (-l nodes=N:ppn=1, default 3).
+# Bidirectional_DoubleBuffering and Atomic_Probe always use exactly 2 ranks.
+#
+# Examples (run from ~/IMT2023016):
+#   qsub run_all.pbs                                   # everything, 5 sizes, 3 ranks
+#   qsub -v PROGRAMS=Sentinel:Twoshot_Sentinel run_all.pbs
+#   qsub -v PROGRAMS=LL:Twoshot_LL,SIZES=32:512 run_all.pbs   # comma between variables,
+#                                                             # colon between list items
+#   qsub -v SIZES=65536,ITERS=100 run_all.pbs          # the original 256 KiB run
+#   qsub -v PROGRAMS=Atomic_Probe run_all.pbs          # hardware atomic-support diagnostic
+#   qsub -l nodes=5:ppn=1 run_all.pbs                  # 5 ranks
+# =============================================================================
+
 set -u
-BASE="/home/student4/IMT2023016/paper_algorithms_v2"
+BASE="${BASE:-/home/student4/IMT2023016/paper_algorithms_v2}"
+PROGRAMS="${PROGRAMS:-Baseline_Barrier:LL:Sentinel:Twoshot_LL:Twoshot_Sentinel:LL128_Atomic:Bidirectional_DoubleBuffering}"
+SIZES="${SIZES:-32:256:1024:4096:16384}"
+ITERS="${ITERS:-1000}"
+TIMEOUT="${TIMEOUT:-90}"
 LOGDIR="$BASE/run_logs"
 mkdir -p "$LOGDIR"
 rm -f "$LOGDIR"/*.log
 
 N=$(sort -u "$PBS_NODEFILE" | wc -l)
 echo "Allocated node count: $N"
+echo "PROGRAMS=$PROGRAMS"
+echo "SIZES=$SIZES floats   ITERS=$ITERS   TIMEOUT=${TIMEOUT}s"
 
-# pbsdsh on this cluster does NOT relay the remote command's stdout back to
-# us (confirmed via debug_mesh.pbs: every test returned exit 0 but zero
-# output). So instead of capturing pbsdsh's output directly, every task
-# below writes its own result to a file in this shared (NFS) folder, and we
-# read those files back afterward -- this works because the job's own home
-# directory is visible from every node.
-
-echo ""
-echo "--- Discovering each node's hostname + InfiniBand (10.1.x.x) address ---"
-# 'ip' isn't on the default PATH inside a pbsdsh task on this cluster (we
-# confirmed: "bash: ip: command not found", exit 127). 'hostname' works
-# fine though, so use 'hostname -I' (lists every IP the machine has) as the
-# primary source, with a PATH-fixed 'ip addr' and a plain sysfs interface
-# listing as backups -- then just grep the whole thing for a 10.1.x.x
-# address, since that's the known IPoIB prefix on this cluster.
+# --- Discover each node's hostname and InfiniBand (10.1.x.x) address ----------
+# pbsdsh does not relay a remote command's stdout here, so each task writes to a
+# file in the shared NFS folder and we read the files back.
 for i in $(seq 0 $((N-1))); do
-    pbsdsh -n "$i" -- bash -c "{ hostname; echo '---hostname -I---'; hostname -I 2>&1; echo '---ip addr (PATH-fixed)---'; PATH=/sbin:/usr/sbin:/bin:/usr/bin:\$PATH ip addr 2>&1; echo '---/sys/class/net---'; ls /sys/class/net 2>&1; } > '$LOGDIR/mesh_${i}.log'" &
+    pbsdsh -n "$i" -- bash -c "{ hostname; echo '---'; hostname -I 2>&1; } > '$LOGDIR/mesh_${i}.log'" &
 done
 wait
 
@@ -42,47 +64,54 @@ for i in $(seq 0 $((N-1))); do
     echo "rank $i -> host $HOST -> ib0 $IP"
 done
 
-echo ""
-echo "--- Full discovery dump for node 0 (in case no 10.1.x.x address was found above) ---"
-cat "$LOGDIR/mesh_0.log"
+# --- Program table: folder name -> binary, rank count, extra args after numFloats
+bin_for() {
+    case "$1" in
+        Baseline_Barrier)                bin=baseline_barrier_rdma;          ranks=$N; extra="" ;;
+        LL)                              bin=ll_allreduce_rdma;              ranks=$N; extra="" ;;
+        Sentinel)                        bin=sentinel_allreduce_rdma;        ranks=$N; extra="" ;;
+        Twoshot_LL)                      bin=twoshot_ll_allreduce_rdma;      ranks=$N; extra="" ;;
+        Twoshot_Sentinel)                bin=twoshot_sentinel_allreduce_rdma; ranks=$N; extra="" ;;
+        LL128_Atomic)                    bin=ll128_atomic_allreduce_rdma;    ranks=$N; extra="" ;;
+        Bidirectional_DoubleBuffering)   bin=bidir_doublebuffer_rdma;        ranks=2;  extra="8" ;;  # 8 chunks/iter
+        Atomic_Probe)                    bin=atomic_probe;                   ranks=2;  extra="" ;;
+        *) return 1 ;;
+    esac
+}
 
-BASE_PORT=20000
-NUM_FLOATS=65536
-ITERS=100
-
+K=0
 run_program() {
-    local dir="$1" bin="$2" ranks="$3"
+    local dir="$1" nfloats="$2"
+    bin_for "$dir" || { echo "!! unknown program '$dir'"; return; }
+    local port=$((20000 + K * 50)); K=$((K + 1))
+    local iplist="${IPS[@]:0:$ranks}"
     echo ""
-    echo "=== $dir ($ranks ranks) ==="
+    echo "=== $dir ($ranks ranks, $nfloats floats) ==="
     for i in $(seq 0 $((ranks-1))); do
-        CMD="'$BASE/$dir/$bin' '$i' '$ranks' '$BASE_PORT' ${IPS[@]} '$NUM_FLOATS' '$ITERS' > '$LOGDIR/${dir}_rank${i}.log' 2>&1"
-        pbsdsh -n "$i" -- bash -c "$CMD" &
+        local log="$LOGDIR/${dir}_rank${i}.log"
+        local cmd="timeout $TIMEOUT '$BASE/$dir/$bin' '$i' '$ranks' '$port' $iplist '$nfloats' $extra '$ITERS' > '$log' 2>&1; echo exit=\$? >> '$log'"
+        pbsdsh -n "$i" -- bash -c "$cmd" &
     done
     wait
     for i in $(seq 0 $((ranks-1))); do
         echo "--- $dir rank $i ---"
-        cat "$LOGDIR/${dir}_rank${i}.log" 2>/dev/null || echo "(missing log file)"
+        grep -E "Correctness|Average|min=|rror|mismatch|M=|exit=|SKIPPED|PROBE" "$LOGDIR/${dir}_rank${i}.log" 2>/dev/null \
+            || echo "(missing log file / no result lines)"
     done
 }
 
-run_program LL ll_allreduce_rdma "$N"
-run_program Sentinel sentinel_allreduce_rdma "$N"
-run_program Twoshot_LL twoshot_ll_allreduce_rdma "$N"
-run_program Twoshot_Sentinel twoshot_sentinel_allreduce_rdma "$N"
-run_program LL128_Atomic ll128_atomic_allreduce_rdma "$N"
-run_program Baseline_Barrier baseline_barrier_rdma "$N"
+IFS=':' read -ra PROG_LIST <<< "$PROGRAMS"
+IFS=':' read -ra SIZE_LIST <<< "$SIZES"
+
+for NF in "${SIZE_LIST[@]}"; do
+    echo ""
+    echo "################ message = $NF floats ($((NF * 4)) bytes), $ITERS iters ################"
+    for p in "${PROG_LIST[@]}"; do
+        # The probe does not depend on message size: run it once, with the first size.
+        if [ "$p" = "Atomic_Probe" ] && [ "$NF" != "${SIZE_LIST[0]}" ]; then continue; fi
+        run_program "$p" "$NF"
+    done
+done
 
 echo ""
-echo "=== Bidirectional_DoubleBuffering (2 ranks only) ==="
-CMD0="'$BASE/Bidirectional_DoubleBuffering/bidir_doublebuffer_rdma' 0 2 '$BASE_PORT' ${IPS[0]} ${IPS[1]} 262144 8 '$ITERS' > '$LOGDIR/bidir_rank0.log' 2>&1"
-CMD1="'$BASE/Bidirectional_DoubleBuffering/bidir_doublebuffer_rdma' 1 2 '$BASE_PORT' ${IPS[0]} ${IPS[1]} 262144 8 '$ITERS' > '$LOGDIR/bidir_rank1.log' 2>&1"
-pbsdsh -n 0 -- bash -c "$CMD0" &
-pbsdsh -n 1 -- bash -c "$CMD1" &
-wait
-echo "--- bidir rank 0 ---"
-cat "$LOGDIR/bidir_rank0.log" 2>/dev/null || echo "(missing log file)"
-echo "--- bidir rank 1 ---"
-cat "$LOGDIR/bidir_rank1.log" 2>/dev/null || echo "(missing log file)"
-
-echo ""
-echo "All algorithms finished."
+echo "Finished."

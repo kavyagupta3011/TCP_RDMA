@@ -42,23 +42,6 @@ static unsigned int float_bits(float f) {
 }
 static int is_sentinel(float f) { return float_bits(f) == SENTINEL_BITS; }
 
-static int cmp_double(const void* a, const void* b) {
-    double x = *(const double*)a, y = *(const double*)b;
-    return (x > y) - (x < y);
-}
-
-// Per-iteration latency summary. The mean alone hides one-off stalls (a late
-// rank, a page fault); min/median/p99 show what a typical round really costs.
-static void print_stats(const char* name, double* lat, int iters, int ranks) {
-    double sum = 0;
-    for (int i = 0; i < iters; ++i) sum += lat[i];
-    qsort(lat, (size_t)iters, sizeof(double), cmp_double);
-    printf("Average %s AllReduce latency over %d iters (%d ranks): %.3f us\n", name, iters, ranks,
-           sum / iters);
-    printf("  min=%.3f us  median=%.3f us  p99=%.3f us  max=%.3f us\n", lat[0], lat[iters / 2],
-           lat[(int)((iters - 1) * 0.99)], lat[iters - 1]);
-}
-
 static void usage(const char* prog) {
     fprintf(stderr,
             "Usage: %s <my_rank> <num_ranks> <base_port> <ip0> <ip1> ... <ip(N-1)> "
@@ -154,14 +137,8 @@ int main(int argc, char** argv) {
         peer_ag[j][1] = remote[3];
     }
 
-    double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
-
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
-
     int ok = 1;
+    double total_us = 0;
     for (int it = -1; it < iters; ++it) {
         int parity = (it + 1) % 2;
         double t0 = now_us();
@@ -169,8 +146,8 @@ int main(int argc, char** argv) {
         // Phase 1 (ReduceScatter).
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
-                            peer_rs[j][parity].addr, peer_rs[j][parity].rkey);
+            rdma_write(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
+                       peer_rs[j][parity].addr, peer_rs[j][parity].rkey);
         }
         for (size_t i = 0; i < chunk; ++i) {
             float sum = input[(size_t)my_rank * chunk + i];
@@ -180,7 +157,6 @@ int main(int argc, char** argv) {
                 while (is_sentinel(slot[i])) { /* spin */
                 }
                 sum += slot[i];
-                slot[i] = sv;  // RE-ARM after consume (see Sentinel/ for why this is safe)
             }
             for (int j = 0; j < n; ++j) {
                 if (j == my_rank) continue;
@@ -189,16 +165,11 @@ int main(int argc, char** argv) {
             output[(size_t)my_rank * chunk + i] = sum;
         }
 
-        // Phase-1 sends finished long ago (we just received every peer's data); collect them
-        // so only one write per connection is ever outstanding.
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
-
         // Phase 2 (AllGather).
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
-                            peer_ag[j][parity].addr, peer_ag[j][parity].rkey);
+            rdma_write(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
+                       peer_ag[j][parity].addr, peer_ag[j][parity].rkey);
         }
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
@@ -207,25 +178,19 @@ int main(int argc, char** argv) {
                 while (is_sentinel(slot[i])) { /* spin */
                 }
                 output[(size_t)j * chunk + i] = slot[i];
-                slot[i] = sv;  // RE-ARM after consume
             }
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
 
         double elapsed = now_us() - t0;
         if (it == -1) {
             ok = verify(output, ref, M, 1e-3f);
             printf("Correctness check vs. CPU reference: %s\n", ok ? "PASSED" : "FAILED");
         } else {
-            lat[it] = elapsed;
+            total_us += elapsed;
         }
     }
-    print_stats("two-shot Sentinel", lat, iters, n);
-    free(lat);
-
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
+    printf("Average two-shot Sentinel AllReduce latency over %d iters (%d ranks): %.3f us\n", iters, n,
+           total_us / iters);
 
     rdma_mesh_close(conns, n, my_rank);
     for (int r = 0; r < n; ++r) free(all_vecs[r]);

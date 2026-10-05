@@ -1,0 +1,52 @@
+ALL-ALGORITHMS RESULTS (PARTIAL) AND FINDINGS -- 2026-10-05
+============================================================
+Setup: 3 ranks (compute00/01/02), RDMA verbs over ConnectX-3 InfiniBand, 1000 iters per run, all programs after
+the post/wait + inline optimization, parity double-buffering and per-iteration timing.
+Logs: /home/student4/.pbs_route/output/student4_20261005_081934_993950100.out (full sweep, only the first part
+was captured), ..._082403_033786095.out (LL128+Baseline diagnostic), ..._082649_072222504.out (atomic probe).
+Bidirectional uses 2 ranks and 8 chunks per iteration; its time is for the whole 8-chunk iteration.
+All runs below printed Correctness: PASSED on every rank.
+
+MEAN LATENCY, avg of ranks (us)
+  Algorithm                  128 B (32 fl)   1 KiB (256 fl)   16 KiB (4096 fl)
+  Sentinel (one-shot)            2.099            3.966           (see earlier sweep v2: 29.8)
+  LL (one-shot)                  2.395            3.891           (not captured yet)
+  Twoshot_Sentinel               3.810           (not captured)   (see earlier sweep v2: 32.5)
+  Twoshot_LL                     4.515            5.617           (not captured yet)
+  Baseline_Barrier (barrier)     8.212 *         10.072 *         37.800 *
+  Bidirectional (2 ranks, 8 chunks/iter)  13.960   (not captured)  (not captured)
+  LL128_Atomic                   NOT SUPPORTED on this hardware (see below)
+  * = rerun after the barrier fix (diagnostic job). Before the fix Baseline gave 9.358 us at 128 B.
+
+HEADLINE: the barrier costs ~6-7 us here. At 128 B: Baseline 8.2-9.4 us vs LL 2.4 us vs Sentinel 2.1 us, i.e.
+removing the explicit barrier makes the AllReduce ~3.5-4x faster -- the paper's central claim, reproduced on
+InfiniBand with RC write ordering instead of NVLink.
+
+FINDING 1 -- LL128_Atomic cannot run on this cluster
+  Atomic_Probe on 2 ranks reported: device atomic_cap=0 (NONE). QP state RTS, access_flags=0xe (includes
+  REMOTE_ATOMIC), max_rd_atomic=1. All four atomic variants (FETCH_AND_ADD with library buffer, with a fresh
+  buffer, CMP_AND_SWP, FETCH_AND_ADD after an inline WRITE) returned ibv_post_send rc=22 (EINVAL). So the
+  adapter/firmware does not support RDMA atomics; this is not a code bug. LL128_Atomic now prints a SKIPPED
+  message and exits with code 2 instead of crashing.
+  Also fixed along the way (would have hung at 3 ranks regardless): the completion-counter target was
+  (it+2)*(n-1) but each peer increments its own per-connection counter once per round, so it must be it+2.
+
+FINDING 2 -- one-off ~2.15 s stall in Baseline_Barrier (256 floats), identical on all ranks
+  Median stayed 11 us; one iteration took 2,151,641 us, which inflated the mean to 12,521 us. Likely cause:
+  rdma_barrier() re-posted its receive only after finishing an exchange, so a peer's next barrier SEND could
+  arrive with no receive posted (receiver-not-ready) and wait out a retry timer. Fixed by keeping two receives
+  posted in separate slots. Not seen again in 3 sizes x 1000 iters afterwards (max <= 55 us), consistent with the
+  fix but not proof, since the stall was rare.
+
+FINDING 3 -- real bugs fixed in LL, Twoshot_LL, LL128_Atomic, Baseline
+  Single receive buffer reused every round (a fast peer's next write could clobber data being read; hidden because
+  every round used identical input) -> now double-buffered by round parity. Flag/counter waits changed from `!=`
+  to `<` (a peer one round ahead would otherwise cause an infinite spin).
+
+STILL TO CAPTURE: 256/1024/4096/16384-float rows for Twoshot_Sentinel, Twoshot_LL, LL, Bidirectional (re-run
+run_all_sizes.pbs on the current build and paste the .out).
+
+OPEN QUESTION FOR THE TEAM: to still demonstrate the LL128 idea on this hardware, a fallback is possible that
+uses RDMA WRITE-with-immediate as the hardware-delivered completion signal (the immediate carries the round id)
+instead of an atomic counter. It is not the paper's mechanism (no atomic add), so it would be reported as an
+emulation. Decide whether it is worth doing.

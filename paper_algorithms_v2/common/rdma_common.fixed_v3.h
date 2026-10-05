@@ -81,9 +81,6 @@ typedef struct {
     // from what the HCA actually granted; 0 if inline is unavailable.
     uint32_t max_inline;
 
-    // Which of the two bootstrap receive slots the NEXT incoming SEND lands in.
-    int boot_slot;
-
     // Small fixed bootstrap buffers used only for rdma_exchange_regions()
     // and rdma_barrier() -- ordinary two-sided SEND/RECV, not part of any
     // algorithm's data path.

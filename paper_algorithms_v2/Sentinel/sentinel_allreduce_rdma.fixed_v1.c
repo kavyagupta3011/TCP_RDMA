@@ -170,10 +170,8 @@ int main(int argc, char** argv) {
 
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            // Post to every peer back to back (small payloads go inline); completions are
-            // collected only AFTER the reduce below, overlapping them with the wait for data.
-            rdma_post_write(conns[j], input_reg[j], input_mr[j]->lkey, M * sizeof(float),
-                            peer_regions[j][buf_idx].addr, peer_regions[j][buf_idx].rkey);
+            rdma_write(conns[j], input_reg[j], input_mr[j]->lkey, M * sizeof(float),
+                       peer_regions[j][buf_idx].addr, peer_regions[j][buf_idx].rkey);
         }
         for (size_t i = 0; i < M; ++i) {
             float sum = input[i];
@@ -189,8 +187,6 @@ int main(int argc, char** argv) {
             }
             output[i] = sum;
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
 
         double elapsed = now_us() - t0;
         if (it == -1) {

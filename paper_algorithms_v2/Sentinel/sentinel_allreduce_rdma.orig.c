@@ -13,13 +13,6 @@
 // the value to stop matching the sentinel. Single RDMA WRITE per peer per
 // round (no trailing flag write).
 //
-// FIX (v3): the original version reset the buffers only once at setup, so
-// after rounds 0 and 1 both buffers held stale real data and the spin-wait
-// never waited -- latencies were not measuring a real exchange. Each slot is
-// now reset to the sentinel right after it is consumed (safe: the peer cannot
-// write round i+2 into this buffer until it has received MY round i+1 data,
-// which I only post after finishing round i, including the reset).
-//
 // The catch, exactly as the paper describes: the receiving buffer must be
 // reset to the sentinel value before it can be reused, and doing that
 // safely across REPEATED rounds between SEPARATE PROCESSES (no shared host
@@ -65,23 +58,6 @@ static unsigned int float_bits(float f) {
 }
 
 static int is_sentinel(float f) { return float_bits(f) == SENTINEL_BITS; }
-
-static int cmp_double(const void* a, const void* b) {
-    double x = *(const double*)a, y = *(const double*)b;
-    return (x > y) - (x < y);
-}
-
-// Per-iteration latency summary. The mean alone hides one-off stalls (a late
-// rank, a page fault); min/median/p99 show what a typical round really costs.
-static void print_stats(const char* name, double* lat, int iters, int ranks) {
-    double sum = 0;
-    for (int i = 0; i < iters; ++i) sum += lat[i];
-    qsort(lat, (size_t)iters, sizeof(double), cmp_double);
-    printf("Average %s AllReduce latency over %d iters (%d ranks): %.3f us\n", name, iters, ranks,
-           sum / iters);
-    printf("  min=%.3f us  median=%.3f us  p99=%.3f us  max=%.3f us\n", lat[0], lat[iters / 2],
-           lat[(int)((iters - 1) * 0.99)], lat[iters - 1]);
-}
 
 static void usage(const char* prog) {
     fprintf(stderr,
@@ -156,24 +132,16 @@ int main(int argc, char** argv) {
         rdma_exchange_regions(conns[j], local, 2, peer_regions[j]);
     }
 
-    double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
-
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
-
     int ok = 1;
+    double total_us = 0;
     for (int it = -1; it < iters; ++it) {
         int buf_idx = (it + 1) % 2;
         double t0 = now_us();
 
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            // Post to every peer back to back (small payloads go inline); completions are
-            // collected only AFTER the reduce below, overlapping them with the wait for data.
-            rdma_post_write(conns[j], input_reg[j], input_mr[j]->lkey, M * sizeof(float),
-                            peer_regions[j][buf_idx].addr, peer_regions[j][buf_idx].rkey);
+            rdma_write(conns[j], input_reg[j], input_mr[j]->lkey, M * sizeof(float),
+                       peer_regions[j][buf_idx].addr, peer_regions[j][buf_idx].rkey);
         }
         for (size_t i = 0; i < M; ++i) {
             float sum = input[i];
@@ -183,29 +151,21 @@ int main(int argc, char** argv) {
                 while (is_sentinel(slot[i])) { /* spin */
                 }
                 sum += slot[i];
-                // RE-ARM: put the sentinel back now that this value is consumed, so the
-                // next use of this buffer (round it+2) blocks until fresh data lands.
-                slot[i] = sv;
             }
             output[i] = sum;
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
 
         double elapsed = now_us() - t0;
         if (it == -1) {
             ok = verify(output, ref, M, 1e-3f);
             printf("Correctness check vs. CPU reference: %s\n", ok ? "PASSED" : "FAILED");
         } else {
-            lat[it] = elapsed;
+            total_us += elapsed;
         }
     }
-    print_stats("one-shot Sentinel", lat, iters, n);
-    free(lat);
-
-    // Don't tear down connections while a peer may still be finishing its last round.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
+    printf("Average one-shot Sentinel AllReduce latency over %d iters (%d ranks): %.3f us\n", iters, n,
+           total_us / iters);
+    printf("(No per-round reset needed -- see file header for why double buffering makes that safe.)\n");
 
     rdma_mesh_close(conns, n, my_rank);
     for (int r = 0; r < n; ++r) free(all_vecs[r]);

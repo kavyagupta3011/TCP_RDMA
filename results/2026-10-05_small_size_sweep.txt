@@ -1,0 +1,49 @@
+SMALL-SIZE SWEEP -- Sentinel vs Two-shot Sentinel (2026-10-05)
+==============================================================
+PBS job from run_sentinel_sizes.pbs (log: /home/student4/.pbs_route/output/student4_20261005_074644_491099120.out)
+Setup: 3 ranks (compute00/01/02), RDMA verbs over ConnectX-3 InfiniBand, 1000 iters per run, same code as
+the "sentinel fix" run (sentinel re-armed after consume, start/end barrier, per-iteration timing).
+All 30 rank-runs (5 sizes x 2 algorithms x 3 ranks) printed: Correctness check ... PASSED.
+Two-shot pads the message up to a multiple of 3 floats (32->33, 256->258, ...), noted in the Msg column.
+
+MEAN LATENCY PER RANK (us)
+  Msg (floats / bytes)   Algorithm           Rank 0    Rank 1    Rank 2   | Avg of 3 ranks
+  32    /    128 B       Sentinel             4.275     4.286     4.286   |   4.282
+  33    /    132 B       Two-shot Sentinel    8.191     8.223     8.223   |   8.212
+  256   /   1024 B       Sentinel             6.983     7.010     7.017   |   7.003
+  258   /   1032 B       Two-shot Sentinel    9.994    10.013    10.014   |  10.007
+  1024  /   4096 B       Sentinel            12.707    12.705    12.700   |  12.704
+  1026  /   4104 B       Two-shot Sentinel   14.490    14.489    14.486   |  14.488
+  4096  /  16384 B       Sentinel            43.499    43.526    43.543   |  43.523
+  4098  /  16392 B       Two-shot Sentinel   44.041    44.081    44.092   |  44.071
+  16384 /  65536 B       Sentinel           139.648   139.782   139.797   | 139.742
+  16386 /  65544 B       Two-shot Sentinel  118.686   118.801   118.776   | 118.754
+
+MEDIAN / p99 (us), rank 0 only (other ranks are within a few %)
+  Msg        Sentinel median / p99     Two-shot median / p99
+  128 B        4.239 /   5.472             8.120 /   9.986
+  1 KiB        6.949 /   8.503             9.974 /  11.584
+  4 KiB       12.668 /  14.442            14.418 /  17.078
+  16 KiB      43.054 /  49.715            43.618 /  51.523
+  64 KiB     140.413 / 167.768           110.783 / 151.503
+
+TWO-SHOT / ONE-SHOT LATENCY RATIO (avg of ranks)
+  128 B: 1.92x   1 KiB: 1.43x   4 KiB: 1.14x   16 KiB: 1.01x   64 KiB: 0.85x
+  -> one-shot wins for small messages; the two algorithms cross over around 16 KiB; two-shot wins above that.
+
+OBSERVATIONS
+- Latency is steady: median within ~1% of mean at every size, p99 within ~15-30% of the mean.
+- The paper's trend is reproduced: two-shot pays for a second synchronization round, so it is much slower
+  at tiny sizes (~1.9x at 128 B) and only pays off once data volume dominates (64 KiB, ~15% faster).
+- Best number so far: 4.28 us for a 128 B one-shot Sentinel AllReduce on 3 ranks. The paper's measured
+  SoL on GB200 NVLink is 1.404 us, but that is a different interconnect (NVLink, GPU L2) and is NOT a
+  valid target for this InfiniBand/CPU cluster. Compare against InfiniBand's own floor instead
+  (e.g. ib_write_lat on this fabric), which we have not measured yet.
+
+HYPOTHESES FOR THE NEXT OPTIMIZATION STEP (not yet verified)
+- 4.28 us at 128 B is roughly two back-to-back blocking, signaled RDMA writes (rdma_write() posts then
+  polls the CQ for each peer in turn). Posting both writes first and polling once could cut this
+  substantially.
+- Cost grows ~linearly with size beyond 4 KiB (64 KiB sent to 2 peers in 140 us ~ 0.9 GB/s, far below IB
+  link rate), which suggests the per-element volatile sentinel check + reset loop in the CPU reduce is a
+  bottleneck at larger sizes.

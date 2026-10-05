@@ -1,0 +1,34 @@
+RAW OUTPUT -- PBS job 28572 (run_sentinel.pbs), 2026-10-05
+Cluster: 172.16.201.12, 3 compute nodes (compute00/01/02), Mellanox ConnectX-3 (mlx4_0), IPoIB 10.1.2.10-12
+Parameters: 3 ranks, numFloats=65536 (256 KiB), iters=100, base_port=20000
+Code: paper_algorithms_v2 with the Sentinel re-arm fix (slot reset to sentinel after each consume),
+      start/end barriers, per-iteration timing. Originals kept as *.orig.c.
+Source file on cluster: /home/student4/.pbs_route/output/student4_20261005_073728_117238717.out
+
+=== Sentinel (3 ranks) ===
+--- Sentinel rank 0 ---
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 100 iters (3 ranks): 540.704 us
+  min=475.866 us  median=542.518 us  p99=611.415 us  max=617.043 us
+--- Sentinel rank 1 ---
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 100 iters (3 ranks): 542.475 us
+  min=475.567 us  median=538.761 us  p99=616.915 us  max=679.993 us
+--- Sentinel rank 2 ---
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 100 iters (3 ranks): 543.491 us
+  min=489.466 us  median=536.019 us  p99=622.326 us  max=764.499 us
+
+=== Twoshot_Sentinel (3 ranks) ===   (M padded by the program to 65538 floats = 3 chunks of 21846)
+--- Twoshot_Sentinel rank 0 ---
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 100 iters (3 ranks): 469.682 us
+  min=421.957 us  median=461.546 us  p99=546.180 us  max=550.082 us
+--- Twoshot_Sentinel rank 1 ---
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 100 iters (3 ranks): 472.607 us
+  min=421.929 us  median=465.028 us  p99=555.729 us  max=778.751 us
+--- Twoshot_Sentinel rank 2 ---
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 100 iters (3 ranks): 472.605 us
+  min=420.501 us  median=462.859 us  p99=548.133 us  max=778.814 us

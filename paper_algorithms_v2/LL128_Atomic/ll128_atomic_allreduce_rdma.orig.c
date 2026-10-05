@@ -43,22 +43,6 @@
 //   node B: ./ll128_atomic_allreduce_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 //   node C: ./ll128_atomic_allreduce_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
-//   every peer back to back; completions are collected once, after the
-//   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
-//   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
-//   buffer was reused every round, so a fast peer's next-round write could
-//   overwrite data still being read (invisible to verification because every
-//   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
-//   and `!=` would spin forever if a peer is already one round ahead.
-// * Per-iteration timing (min/median/p99/max), a start barrier and an end
-//   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
-
 #include "../common/rdma_common.h"
 
 #define LL128_SEED_BASE 6000
@@ -107,25 +91,6 @@ int main(int argc, char** argv) {
 
     RdmaConn** conns = rdma_mesh_connect(my_rank, n, ips, base_port);
 
-    // This algorithm REQUIRES hardware RDMA atomics. Some adapters/firmware (including the
-    // ConnectX-3 on this cluster, measured with Atomic_Probe/) report atomic_cap = NONE, and
-    // every atomic post then fails with EINVAL. Every rank sees the same adapter model, so all
-    // ranks take this branch together and nobody is left waiting.
-    {
-        struct ibv_device_attr dattr;
-        memset(&dattr, 0, sizeof(dattr));
-        int peer0 = (my_rank == 0) ? 1 : 0;
-        if (ibv_query_device(conns[peer0]->cm_id->verbs, &dattr) == 0 &&
-            dattr.atomic_cap == IBV_ATOMIC_NONE) {
-            printf(
-                "SKIPPED: this adapter reports atomic_cap=NONE (no RDMA atomics); LL128_Atomic "
-                "cannot run here. See results/ and Atomic_Probe/.\n");
-            rdma_mesh_close(conns, n, my_rank);
-            free(ips);
-            return 2;
-        }
-    }
-
     float** all_vecs = malloc((size_t)n * sizeof(float*));
     for (int r = 0; r < n; ++r) all_vecs[r] = make_random_vector(M, LL128_SEED_BASE + r);
     float* input = all_vecs[my_rank];
@@ -133,13 +98,13 @@ int main(int argc, char** argv) {
     reference_sum_n(all_vecs, n, ref, M);
     float* output = malloc(M * sizeof(float));
 
-    float* (*rs_recv)[2] = calloc((size_t)n, sizeof(*rs_recv));  // [peer][round parity]
-    float* (*ag_recv)[2] = calloc((size_t)n, sizeof(*ag_recv));
+    float** rs_recv = calloc((size_t)n, sizeof(float*));
     int64_t** rs_ctr = calloc((size_t)n, sizeof(int64_t*));  // starts at 0, monotonic forever
+    float** ag_recv = calloc((size_t)n, sizeof(float*));
     int64_t** ag_ctr = calloc((size_t)n, sizeof(int64_t*));
-    RegionInfo (*peer_rs)[2] = calloc((size_t)n, sizeof(*peer_rs));
-    RegionInfo (*peer_ag)[2] = calloc((size_t)n, sizeof(*peer_ag));
+    RegionInfo* peer_rs = calloc((size_t)n, sizeof(RegionInfo));
     RegionInfo* peer_rsc = calloc((size_t)n, sizeof(RegionInfo));
+    RegionInfo* peer_ag = calloc((size_t)n, sizeof(RegionInfo));
     RegionInfo* peer_agc = calloc((size_t)n, sizeof(RegionInfo));
 
     float** phase1_src = calloc((size_t)n, sizeof(float*));
@@ -149,72 +114,55 @@ int main(int argc, char** argv) {
 
     for (int j = 0; j < n; ++j) {
         if (j == my_rank) continue;
-        struct ibv_mr *rs_mr[2], *ag_mr[2], *rsc_mr, *agc_mr;
-        for (int b = 0; b < 2; ++b) {
-            rs_recv[j][b] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &rs_mr[b]);
-            ag_recv[j][b] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &ag_mr[b]);
-        }
+        struct ibv_mr *rs_mr, *rsc_mr, *ag_mr, *agc_mr;
+        rs_recv[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &rs_mr);
         rs_ctr[j] = rdma_reg_buffer(conns[j], sizeof(int64_t), &rsc_mr);
+        ag_recv[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &ag_mr);
         ag_ctr[j] = rdma_reg_buffer(conns[j], sizeof(int64_t), &agc_mr);
 
         phase1_src[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &phase1_src_mr[j]);
         memcpy(phase1_src[j], input + (size_t)j * chunk, chunk * sizeof(float));
         reduced[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &reduced_mr[j]);
 
-        uint32_t csz = (uint32_t)(chunk * sizeof(float));
-        RegionInfo local[6] = {
-            {(uint64_t)(uintptr_t)rs_recv[j][0], rs_mr[0]->rkey, csz},
-            {(uint64_t)(uintptr_t)rs_recv[j][1], rs_mr[1]->rkey, csz},
+        RegionInfo local[4] = {
+            {(uint64_t)(uintptr_t)rs_recv[j], rs_mr->rkey, (uint32_t)(chunk * sizeof(float))},
             {(uint64_t)(uintptr_t)rs_ctr[j], rsc_mr->rkey, sizeof(int64_t)},
-            {(uint64_t)(uintptr_t)ag_recv[j][0], ag_mr[0]->rkey, csz},
-            {(uint64_t)(uintptr_t)ag_recv[j][1], ag_mr[1]->rkey, csz},
+            {(uint64_t)(uintptr_t)ag_recv[j], ag_mr->rkey, (uint32_t)(chunk * sizeof(float))},
             {(uint64_t)(uintptr_t)ag_ctr[j], agc_mr->rkey, sizeof(int64_t)},
         };
-        RegionInfo remote[6];
-        rdma_exchange_regions(conns[j], local, 6, remote);
-        peer_rs[j][0] = remote[0];
-        peer_rs[j][1] = remote[1];
-        peer_rsc[j] = remote[2];
-        peer_ag[j][0] = remote[3];
-        peer_ag[j][1] = remote[4];
-        peer_agc[j] = remote[5];
+        RegionInfo remote[4];
+        rdma_exchange_regions(conns[j], local, 4, remote);
+        peer_rs[j] = remote[0];
+        peer_rsc[j] = remote[1];
+        peer_ag[j] = remote[2];
+        peer_agc[j] = remote[3];
     }
 
-    double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
-
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
-
     int ok = 1;
+    double total_us = 0;
     for (int it = -1; it < iters; ++it) {
-        // FIX: each peer increments ITS OWN per-connection counter (rs_ctr[j]) by 1 per round,
-        // so after round `it` that counter equals it+2. The old (it+2)*(n-1) is only equal at
-        // n==2 and would spin forever at n>=3.
-        int64_t expect = it + 2;
-        int par = (int)(expect & 1);
+        int64_t expect = (int64_t)(it + 2) * (n - 1);
         double t0 = now_us();
+        int64_t old_val;
 
-        // Phase 1 (ReduceScatter): data WRITE (unsignaled) then atomic +1 (signaled), no flag.
+        // Phase 1 (ReduceScatter): data WRITE then atomic +1, no flag.
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write_ex(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
-                               peer_rs[j][par].addr, peer_rs[j][par].rkey, 0);
-            rdma_post_atomic_add(conns[j], peer_rsc[j].addr, peer_rsc[j].rkey, 1);
+            rdma_write(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
+                       peer_rs[j].addr, peer_rs[j].rkey);
+            rdma_atomic_fetch_add(conns[j], peer_rsc[j].addr, peer_rsc[j].rkey, 1, &old_val);
         }
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             volatile int64_t* poll = (volatile int64_t*)rs_ctr[j];
-            while (*poll < expect) { /* spin */
+            while (*poll != expect) { /* spin */
             }
         }
-        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         for (size_t i = 0; i < chunk; ++i) {
             float sum = input[(size_t)my_rank * chunk + i];
             for (int j = 0; j < n; ++j) {
                 if (j == my_rank) continue;
-                sum += rs_recv[j][par][i];
+                sum += rs_recv[j][i];
             }
             for (int j = 0; j < n; ++j) {
                 if (j == my_rank) continue;
@@ -222,41 +170,32 @@ int main(int argc, char** argv) {
             }
             output[(size_t)my_rank * chunk + i] = sum;
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_atomic(conns[j]);
 
         // Phase 2 (AllGather): same pattern, broadcasting the completed chunk.
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write_ex(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
-                               peer_ag[j][par].addr, peer_ag[j][par].rkey, 0);
-            rdma_post_atomic_add(conns[j], peer_agc[j].addr, peer_agc[j].rkey, 1);
+            rdma_write(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
+                       peer_ag[j].addr, peer_ag[j].rkey);
+            rdma_atomic_fetch_add(conns[j], peer_agc[j].addr, peer_agc[j].rkey, 1, &old_val);
         }
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             volatile int64_t* poll = (volatile int64_t*)ag_ctr[j];
-            while (*poll < expect) { /* spin */
+            while (*poll != expect) { /* spin */
             }
-            __atomic_thread_fence(__ATOMIC_ACQUIRE);
-            memcpy(output + (size_t)j * chunk, ag_recv[j][par], chunk * sizeof(float));
+            memcpy(output + (size_t)j * chunk, ag_recv[j], chunk * sizeof(float));
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_atomic(conns[j]);
 
         double elapsed = now_us() - t0;
         if (it == -1) {
             ok = verify(output, ref, M, 1e-3f);
             printf("Correctness check vs. CPU reference: %s\n", ok ? "PASSED" : "FAILED");
         } else {
-            lat[it] = elapsed;
+            total_us += elapsed;
         }
     }
-    rdma_print_stats("two-shot LL128 Atomic", lat, iters, n);
-    free(lat);
-
-    // Don't tear down connections while a peer may still be finishing its last round.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
+    printf("Average two-shot LL128 Atomic AllReduce latency over %d iters (%d ranks): %.3f us\n", iters,
+           n, total_us / iters);
 
     rdma_mesh_close(conns, n, my_rank);
     for (int r = 0; r < n; ++r) free(all_vecs[r]);
@@ -264,12 +203,12 @@ int main(int argc, char** argv) {
     free(ref);
     free(output);
     free(rs_recv);
-    free(ag_recv);
     free(rs_ctr);
+    free(ag_recv);
     free(ag_ctr);
     free(peer_rs);
-    free(peer_ag);
     free(peer_rsc);
+    free(peer_ag);
     free(peer_agc);
     free(phase1_src);
     free(phase1_src_mr);

@@ -1,0 +1,42 @@
+SENTINEL FIX -- RESULTS SUMMARY (2026-10-05)
+=============================================
+Setup: 3 ranks (compute00/01/02), RDMA verbs over ConnectX-3 InfiniBand, 65536 floats (256 KiB), 100 iters.
+Raw log: results/2026-10-05_sentinel_fix_raw.txt
+
+BEFORE (teammate's original run, mean only, no re-arm of the sentinel)
+  Algorithm         Rank 0         Rank 1         Rank 2
+  Sentinel          57,799.716 us  57,801.464 us  57,801.426 us
+  Two-shot Sentinel    609.007 us     611.262 us     611.365 us
+
+AFTER (fixed: sentinel re-armed after every consume, start barrier, per-iteration timing)
+  Algorithm          Rank  Mean (us)  Min (us)  Median (us)  p99 (us)  Max (us)
+  Sentinel           0     540.704    475.866   542.518      611.415   617.043
+  Sentinel           1     542.475    475.567   538.761      616.915   679.993
+  Sentinel           2     543.491    489.466   536.019      622.326   764.499
+  Two-shot Sentinel  0     469.682    421.957   461.546      546.180   550.082
+  Two-shot Sentinel  1     472.607    421.929   465.028      555.729   778.751
+  Two-shot Sentinel  2     472.605    420.501   462.859      548.133   778.814
+
+Per-algorithm average over the 3 ranks (mean latency):
+  Sentinel           ~542.2 us   (was ~57,800 us)   -> ~107x lower
+  Two-shot Sentinel  ~471.6 us   (was ~610 us)      -> ~1.29x lower
+  Two-shot vs one-shot after fix: ~471.6 vs ~542.2 us -> two-shot ~13% faster
+
+Correctness: PASSED on all 6 rank-runs (vs. CPU reference sum).
+
+OBSERVATIONS
+- Median is within ~1% of the mean and p99 is only ~13% above it, so the latency is steady, with no
+  one-off stall. (The old 57.8 ms Sentinel figure is not reproduced; the original code never re-armed
+  the sentinel, so its numbers did not measure a real exchange.)
+- Two-shot is now faster than one-shot, as expected for N=3 (it moves less data: 2(N-1)M/N vs (N-1)M floats
+  per rank).
+- CAVEAT: 256 KiB is a bandwidth-sized message, NOT the small-message latency regime the paper targets
+  (paper: ~128 B up to a few KiB). ~500 us here is dominated by moving 256 KiB and by the CPU reduce loop,
+  not by synchronization. Not comparable to the paper's ~1.4-5 us numbers.
+- Likely remaining costs (hypotheses, not yet measured): rdma_write() is blocking/signaled and posted
+  serially per peer; per-element volatile sentinel check + reset in the reduce loop.
+
+NEXT STEPS
+1. Rerun at a small message size to see the latency regime, e.g. numFloats = 32, 256, 4096 (128 B, 1 KiB, 16 KiB).
+2. Optimize rdma_write (post all writes first, signal only the last, inline small writes) and the reduce loop.
+3. Re-run the other algorithms (LL, Twoshot_LL, LL128_Atomic, Baseline_Barrier) with per-iteration timing.

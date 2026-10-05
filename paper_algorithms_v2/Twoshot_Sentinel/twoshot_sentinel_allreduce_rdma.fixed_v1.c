@@ -169,8 +169,8 @@ int main(int argc, char** argv) {
         // Phase 1 (ReduceScatter).
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
-                            peer_rs[j][parity].addr, peer_rs[j][parity].rkey);
+            rdma_write(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
+                       peer_rs[j][parity].addr, peer_rs[j][parity].rkey);
         }
         for (size_t i = 0; i < chunk; ++i) {
             float sum = input[(size_t)my_rank * chunk + i];
@@ -189,16 +189,11 @@ int main(int argc, char** argv) {
             output[(size_t)my_rank * chunk + i] = sum;
         }
 
-        // Phase-1 sends finished long ago (we just received every peer's data); collect them
-        // so only one write per connection is ever outstanding.
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
-
         // Phase 2 (AllGather).
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
-                            peer_ag[j][parity].addr, peer_ag[j][parity].rkey);
+            rdma_write(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
+                       peer_ag[j][parity].addr, peer_ag[j][parity].rkey);
         }
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
@@ -210,8 +205,6 @@ int main(int argc, char** argv) {
                 slot[i] = sv;  // RE-ARM after consume
             }
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
 
         double elapsed = now_us() - t0;
         if (it == -1) {

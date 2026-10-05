@@ -34,22 +34,6 @@
 //   node A: ./bidir_doublebuffer_rdma 0 2 20000 10.1.2.1 10.1.2.2
 //   node B: ./bidir_doublebuffer_rdma 1 2 20000 10.1.2.1 10.1.2.2
 
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
-//   every peer back to back; completions are collected once, after the
-//   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
-//   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
-//   buffer was reused every round, so a fast peer's next-round write could
-//   overwrite data still being read (invisible to verification because every
-//   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
-//   and `!=` would spin forever if a peer is already one round ahead.
-// * Per-iteration timing (min/median/p99/max), a start barrier and an end
-//   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
-
 #include "../common/rdma_common.h"
 
 #define BIDIR_SEED_BASE 3000
@@ -137,23 +121,19 @@ int main(int argc, char** argv) {
         size_t base = (size_t)c * chunk_elems;
 
         *epoch_send = flag_val;
-        rdma_post_write_ex(conn, input_reg + base, input_mr->lkey, chunk_elems * sizeof(float),
-                           peer_data[buf].addr, peer_data[buf].rkey, 0);
-        rdma_post_write(conn, epoch_send, epoch_mr->lkey, sizeof(int64_t), peer_flag[buf].addr,
-                        peer_flag[buf].rkey);
-        while (flag_poll[buf][0] < flag_val) { /* spin */
+        rdma_write(conn, input_reg + base, input_mr->lkey, chunk_elems * sizeof(float),
+                   peer_data[buf].addr, peer_data[buf].rkey);
+        rdma_write(conn, epoch_send, epoch_mr->lkey, sizeof(int64_t), peer_flag[buf].addr,
+                   peer_flag[buf].rkey);
+        while (flag_poll[buf][0] != flag_val) { /* spin */
         }
-        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         for (size_t i = 0; i < chunk_elems; ++i) output[base + i] = input[base + i] + data_buf[buf][i];
-        rdma_wait_write(conn);
     }
     int ok = verify(output, ref, M, 1e-3f);
     printf("Correctness check vs. CPU reference: %s\n", ok ? "PASSED" : "FAILED");
 
-    double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
-    rdma_barrier(conn);  // start both ranks together
-
     int64_t global_flag_counter = num_chunks + 1;  // continue past the correctness-check pass above
+    double total_us = 0;
     for (int it = 0; it < iters; ++it) {
         double t0 = now_us();
         for (int c = 0; c < num_chunks; ++c) {
@@ -162,25 +142,21 @@ int main(int argc, char** argv) {
             size_t base = (size_t)c * chunk_elems;
 
             *epoch_send = flag_val;
-            rdma_post_write_ex(conn, input_reg + base, input_mr->lkey, chunk_elems * sizeof(float),
-                               peer_data[buf].addr, peer_data[buf].rkey, 0);
-            rdma_post_write(conn, epoch_send, epoch_mr->lkey, sizeof(int64_t), peer_flag[buf].addr,
-                            peer_flag[buf].rkey);
-            while (flag_poll[buf][0] < flag_val) { /* spin */
+            rdma_write(conn, input_reg + base, input_mr->lkey, chunk_elems * sizeof(float),
+                       peer_data[buf].addr, peer_data[buf].rkey);
+            rdma_write(conn, epoch_send, epoch_mr->lkey, sizeof(int64_t), peer_flag[buf].addr,
+                       peer_flag[buf].rkey);
+            while (flag_poll[buf][0] != flag_val) { /* spin */
             }
-            __atomic_thread_fence(__ATOMIC_ACQUIRE);
             for (size_t i = 0; i < chunk_elems; ++i)
                 output[base + i] = input[base + i] + data_buf[buf][i];
-            rdma_wait_write(conn);
         }
-        lat[it] = now_us() - t0;
+        total_us += now_us() - t0;
     }
-    char label[64];
-    snprintf(label, sizeof(label), "bidirectional double-buffered (%d chunks/iter)", num_chunks);
-    rdma_print_stats(label, lat, iters, 2);
-    free(lat);
-
-    rdma_barrier(conn);  // don't tear down while the peer may still be finishing
+    printf(
+        "Average bidirectional double-buffered reduction latency over %d iters "
+        "(%d chunks/iter): %.3f us\n",
+        iters, num_chunks, total_us / iters);
 
     rdma_mesh_close(conns, 2, my_rank);
     free(input);

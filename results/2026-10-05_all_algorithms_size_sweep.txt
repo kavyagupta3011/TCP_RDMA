@@ -1,0 +1,61 @@
+ALL-ALGORITHMS SIZE SWEEP -- COMPLETE (2026-10-05)
+==================================================
+Log: /home/student4/.pbs_route/output/student4_20261005_083006_635475435.out  (PBS job from run_all_sizes.pbs)
+Setup: 3 ranks (compute00/01/02), RDMA verbs over ConnectX-3 InfiniBand (IPoIB 10.1.2.10-12), 1000 iters per run,
+current build: non-blocking + inline writes, parity double-buffering, `<` flag waits, per-iteration timing,
+start/end barriers, two-slot bootstrap receives (barrier fix).
+Every run that executed printed Correctness: PASSED on every rank. No stalls: max latency stays within ~1.2-2x p99.
+Two-shot programs pad the message to a multiple of 3 floats. Bidirectional uses 2 ranks (rank 0 and 1) and sends
+8 chunks per iteration, so its time is for a whole 8-chunk pass, not directly comparable to the others.
+LL128_Atomic did not run: this adapter reports atomic_cap=NONE (see 2026-10-05_all_algorithms_partial_and_findings.txt).
+
+MEAN LATENCY, average of the 3 ranks (us)
+  Algorithm                 128 B    1 KiB    4 KiB    16 KiB    64 KiB
+  Baseline_Barrier          8.198   10.084   16.312    37.929   121.001
+  LL (one-shot)             2.362    3.671    8.990    27.243    95.518
+  Sentinel (one-shot)       2.104    4.047   10.206    29.008    91.991
+  Twoshot_LL                4.482    5.554    8.679    22.259    73.008
+  Twoshot_Sentinel          3.758    5.672   11.537    32.660    93.147
+  LL128_Atomic              --       --       --        --        --      (not supported on this hardware)
+  Bidirectional (2 ranks,   14.171  14.141   19.694    27.107    59.849   (8 chunks / iter, whole pass)
+    8 chunks/iter)
+  (msg floats: 32 / 256 / 1024 / 4096 / 16384; two-shot rows use 33 / 258 / 1026 / 4098 / 16386)
+
+MEDIAN, rank 0 (us)
+  Baseline_Barrier          8.329   10.069   16.116    37.596   120.091
+  LL                        2.315    3.598    8.995    27.299    91.434
+  Sentinel                  2.018    3.956   10.047    29.229    88.717
+  Twoshot_LL                4.394    5.504    8.550    22.142    72.359
+  Twoshot_Sentinel          3.689    5.549   11.450    32.206    90.985
+  Bidirectional             14.083   14.004   19.521    26.934    59.707
+
+SPEEDUP OF BEST BARRIER-FREE ALGORITHM OVER THE BARRIER BASELINE
+  128 B : Sentinel 2.104 us   -> 3.90x  (LL 3.47x)
+  1 KiB : LL 3.671 us         -> 2.75x
+  4 KiB : Twoshot_LL 8.679 us -> 1.88x  (LL 1.81x)
+  16 KiB: Twoshot_LL 22.259 us-> 1.70x
+  64 KiB: Twoshot_LL 73.008 us-> 1.66x
+  => removing the barrier saves ~6 us per AllReduce (a fixed cost), so the relative win is biggest for tiny messages
+     and shrinks as data movement dominates -- the paper's central claim, reproduced on InfiniBand.
+
+TWO-SHOT vs ONE-SHOT (same sync mechanism), avg-of-ranks
+  LL:        two-shot/one-shot = 1.90x (128 B), 1.51x (1 KiB), 0.97x (4 KiB), 0.82x (16 KiB), 0.76x (64 KiB)
+             -> one-shot wins below ~4 KiB, two-shot wins above (crossover ~4 KiB), as the paper describes.
+  Sentinel:  two-shot/one-shot = 1.79x, 1.40x, 1.13x, 1.13x, 1.01x -> one-shot wins or ties at every size tested.
+
+OBSERVATIONS
+- LL vs Sentinel: Sentinel is faster at 128 B (2.10 vs 2.36 us) and at 64 KiB (92.0 vs 95.5 us); LL is faster from
+  1 KiB to 16 KiB. This does not match the paper's "LL best at tiny sizes, Sentinel at larger" ordering exactly;
+  here LL is flag-after-data over RC ordering (not a 16-byte atomic flag+data store), so the mechanisms differ.
+- Twoshot_Sentinel is clearly worse than Twoshot_LL at larger sizes (93.1 vs 73.0 us at 64 KiB, 32.7 vs 22.3 us at
+  16 KiB). Likely cause (hypothesis, not measured): the sentinel path checks AND re-arms every float on the CPU,
+  while LL waits on one flag word and then reads the data directly. This is the biggest remaining optimization target.
+- Cost per exchange: Bidirectional's 8-chunk pass at 128 B is 14.2 us, i.e. ~1.8 us per chunk round trip between 2 ranks.
+- Not yet compared against the InfiniBand hardware floor (e.g. ib_write_lat), so we cannot yet say how close
+  ~2.1 us is to the limit of this fabric. The paper's 1.404 us is an NVLink figure and not a valid target here.
+
+NEXT STEPS (candidates)
+1. Optimize the sentinel CPU loops (peer-major streaming, check once per cache line / unrolled, batch re-arm).
+2. Measure the IB floor with ib_write_lat between two compute nodes.
+3. Scale beyond 3 ranks (the cluster has 8 compute nodes) to see one-shot vs two-shot cross over as N grows.
+4. Decide whether to build a write-with-immediate emulation of LL128_Atomic.

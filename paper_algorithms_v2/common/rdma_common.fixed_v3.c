@@ -47,17 +47,9 @@ static void build_qp(RdmaConn* conn) {
 
 // Pre-posts a receive for the bootstrap RECV buffer -- required before the
 // peer's matching SEND can land, standard RC-QP requirement.
-//
-// TWO receives are kept posted at all times, each into its own slot of
-// boot_recv_buf. With only one, a peer that finishes an exchange/barrier and
-// immediately starts the next one can SEND before this side has re-posted its
-// receive -> receiver-not-ready NAK -> the sender sits out a retry timer
-// (observed as a one-off ~2 s stall in Baseline_Barrier, identical on all
-// ranks). Separate slots also keep a second message from overwriting the
-// first before it has been copied out.
-static void post_boot_recv(RdmaConn* conn, int slot) {
+static void post_boot_recv(RdmaConn* conn) {
     struct ibv_sge sge;
-    sge.addr = (uintptr_t)(conn->boot_recv_buf + (size_t)slot * MAX_REGIONS);
+    sge.addr = (uintptr_t)conn->boot_recv_buf;
     sge.length = MAX_REGIONS * sizeof(RegionInfo);
     sge.lkey = conn->boot_recv_mr->lkey;
 
@@ -72,13 +64,13 @@ static void post_boot_recv(RdmaConn* conn, int slot) {
 
 static void alloc_bootstrap_buffers(RdmaConn* conn) {
     conn->boot_send_buf = calloc(MAX_REGIONS, sizeof(RegionInfo));
-    conn->boot_recv_buf = calloc(2 * MAX_REGIONS, sizeof(RegionInfo));  // 2 slots, see post_boot_recv
+    conn->boot_recv_buf = calloc(MAX_REGIONS, sizeof(RegionInfo));
     RDMA_CHECK(conn->boot_send_buf && conn->boot_recv_buf, "calloc (bootstrap buffers) failed");
 
     conn->boot_send_mr = ibv_reg_mr(conn->pd, conn->boot_send_buf, MAX_REGIONS * sizeof(RegionInfo),
                                      IBV_ACCESS_LOCAL_WRITE);
-    conn->boot_recv_mr = ibv_reg_mr(conn->pd, conn->boot_recv_buf,
-                                     2 * MAX_REGIONS * sizeof(RegionInfo), IBV_ACCESS_LOCAL_WRITE);
+    conn->boot_recv_mr = ibv_reg_mr(conn->pd, conn->boot_recv_buf, MAX_REGIONS * sizeof(RegionInfo),
+                                     IBV_ACCESS_LOCAL_WRITE);
     RDMA_CHECK(conn->boot_send_mr && conn->boot_recv_mr, "ibv_reg_mr (bootstrap buffers) failed");
 
     conn->atomic_result_buf = aligned_alloc(8, sizeof(int64_t));
@@ -87,9 +79,7 @@ static void alloc_bootstrap_buffers(RdmaConn* conn) {
         ibv_reg_mr(conn->pd, conn->atomic_result_buf, sizeof(int64_t), IBV_ACCESS_LOCAL_WRITE);
     RDMA_CHECK(conn->atomic_result_mr != NULL, "ibv_reg_mr (atomic result) failed");
 
-    post_boot_recv(conn, 0);
-    post_boot_recv(conn, 1);
-    conn->boot_slot = 0;
+    post_boot_recv(conn);
 }
 
 RdmaConn* rdma_server_listen_only(const char* ip, int port) {
@@ -289,11 +279,8 @@ void rdma_exchange_regions(RdmaConn* conn, RegionInfo* local, int n, RegionInfo*
     poll_one(conn->cq, 0x5E0D);
     poll_one(conn->cq, 0xB00710);
 
-    // Receives complete in the order they were posted (slot 0, 1, 0, 1, ...).
-    int slot = conn->boot_slot;
-    memcpy(remote_out, conn->boot_recv_buf + (size_t)slot * MAX_REGIONS, n * sizeof(RegionInfo));
-    post_boot_recv(conn, slot);  // re-arm this slot; the other one is already posted
-    conn->boot_slot = slot ^ 1;
+    memcpy(remote_out, conn->boot_recv_buf, n * sizeof(RegionInfo));
+    post_boot_recv(conn);  // re-arm for the next exchange/barrier call
 }
 
 void rdma_write(RdmaConn* conn, void* local_addr, uint32_t lkey, size_t len,
@@ -335,15 +322,7 @@ void rdma_post_write_ex(RdmaConn* conn, void* local_addr, uint32_t lkey, size_t 
     wr.wr.rdma.remote_addr = remote_addr;
     wr.wr.rdma.rkey = rkey;
 
-    int rc = ibv_post_send(conn->qp, &wr, &bad_wr);
-    if (rc != 0) {
-        fprintf(stderr,
-                "RDMA error: ibv_post_send (RDMA WRITE) returned %d (%s); len=%zu inline=%d "
-                "max_inline=%u signaled=%d\n",
-                rc, strerror(rc), len, (wr.send_flags & IBV_SEND_INLINE) != 0, conn->max_inline,
-                signaled);
-        exit(1);
-    }
+    RDMA_CHECK(ibv_post_send(conn->qp, &wr, &bad_wr) == 0, "ibv_post_send (RDMA WRITE) failed");
 }
 
 void rdma_post_write(RdmaConn* conn, void* local_addr, uint32_t lkey, size_t len,
@@ -399,16 +378,8 @@ void rdma_post_atomic_add(RdmaConn* conn, uint64_t remote_addr, uint32_t rkey, i
     wr.wr.atomic.rkey = rkey;
     wr.wr.atomic.compare_add = add_val;
 
-    // ibv_post_send() RETURNS the error number (it does not set errno), so report that.
-    int rc = ibv_post_send(conn->qp, &wr, &bad_wr);
-    if (rc != 0) {
-        fprintf(stderr,
-                "RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) returned %d (%s); remote_addr=%llx "
-                "rkey=%u local_addr=%llx lkey=%u\n",
-                rc, strerror(rc), (unsigned long long)remote_addr, rkey,
-                (unsigned long long)sge.addr, sge.lkey);
-        exit(1);
-    }
+    RDMA_CHECK(ibv_post_send(conn->qp, &wr, &bad_wr) == 0,
+               "ibv_post_send (ATOMIC_FETCH_AND_ADD) failed");
 }
 
 void rdma_wait_atomic(RdmaConn* conn) { poll_one(conn->cq, 0xA70A1C); }

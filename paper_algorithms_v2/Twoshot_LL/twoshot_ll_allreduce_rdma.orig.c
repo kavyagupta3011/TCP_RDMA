@@ -44,22 +44,6 @@
 //   node B: ./twoshot_ll_allreduce_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 //   node C: ./twoshot_ll_allreduce_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
-//   every peer back to back; completions are collected once, after the
-//   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
-//   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
-//   buffer was reused every round, so a fast peer's next-round write could
-//   overwrite data still being read (invisible to verification because every
-//   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
-//   and `!=` would spin forever if a peer is already one round ahead.
-// * Per-iteration timing (min/median/p99/max), a start barrier and an end
-//   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
-
 #include "../common/rdma_common.h"
 
 #define TWOSHOT_LL_SEED_BASE 4000
@@ -113,13 +97,13 @@ int main(int argc, char** argv) {
     reference_sum_n(all_vecs, n, ref, M);
     float* output = malloc(M * sizeof(float));
 
-    float* (*rs_recv)[2] = calloc((size_t)n, sizeof(*rs_recv));  // [peer][round parity]
-    float* (*ag_recv)[2] = calloc((size_t)n, sizeof(*ag_recv));
+    float** rs_recv = calloc((size_t)n, sizeof(float*));
     int64_t** rs_flag = calloc((size_t)n, sizeof(int64_t*));
+    float** ag_recv = calloc((size_t)n, sizeof(float*));
     int64_t** ag_flag = calloc((size_t)n, sizeof(int64_t*));
-    RegionInfo (*peer_rs)[2] = calloc((size_t)n, sizeof(*peer_rs));
-    RegionInfo (*peer_ag)[2] = calloc((size_t)n, sizeof(*peer_ag));
+    RegionInfo* peer_rs = calloc((size_t)n, sizeof(RegionInfo));
     RegionInfo* peer_rsf = calloc((size_t)n, sizeof(RegionInfo));
+    RegionInfo* peer_ag = calloc((size_t)n, sizeof(RegionInfo));
     RegionInfo* peer_agf = calloc((size_t)n, sizeof(RegionInfo));
 
     // Per-peer registered copies (separate PD per connection): my chunk-c
@@ -134,12 +118,10 @@ int main(int argc, char** argv) {
 
     for (int j = 0; j < n; ++j) {
         if (j == my_rank) continue;
-        struct ibv_mr *rs_mr[2], *ag_mr[2], *rsf_mr, *agf_mr;
-        for (int b = 0; b < 2; ++b) {
-            rs_recv[j][b] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &rs_mr[b]);
-            ag_recv[j][b] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &ag_mr[b]);
-        }
+        struct ibv_mr *rs_mr, *rsf_mr, *ag_mr, *agf_mr;
+        rs_recv[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &rs_mr);
         rs_flag[j] = rdma_reg_buffer(conns[j], sizeof(int64_t), &rsf_mr);
+        ag_recv[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &ag_mr);
         ag_flag[j] = rdma_reg_buffer(conns[j], sizeof(int64_t), &agf_mr);
 
         phase1_src[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &phase1_src_mr[j]);
@@ -147,36 +129,24 @@ int main(int argc, char** argv) {
         reduced[j] = rdma_reg_buffer(conns[j], chunk * sizeof(float), &reduced_mr[j]);
         epoch_send[j] = rdma_reg_buffer(conns[j], sizeof(int64_t), &epoch_mr[j]);
 
-        uint32_t csz = (uint32_t)(chunk * sizeof(float));
-        RegionInfo local[6] = {
-            {(uint64_t)(uintptr_t)rs_recv[j][0], rs_mr[0]->rkey, csz},
-            {(uint64_t)(uintptr_t)rs_recv[j][1], rs_mr[1]->rkey, csz},
+        RegionInfo local[4] = {
+            {(uint64_t)(uintptr_t)rs_recv[j], rs_mr->rkey, (uint32_t)(chunk * sizeof(float))},
             {(uint64_t)(uintptr_t)rs_flag[j], rsf_mr->rkey, sizeof(int64_t)},
-            {(uint64_t)(uintptr_t)ag_recv[j][0], ag_mr[0]->rkey, csz},
-            {(uint64_t)(uintptr_t)ag_recv[j][1], ag_mr[1]->rkey, csz},
+            {(uint64_t)(uintptr_t)ag_recv[j], ag_mr->rkey, (uint32_t)(chunk * sizeof(float))},
             {(uint64_t)(uintptr_t)ag_flag[j], agf_mr->rkey, sizeof(int64_t)},
         };
-        RegionInfo remote[6];
-        rdma_exchange_regions(conns[j], local, 6, remote);
-        peer_rs[j][0] = remote[0];
-        peer_rs[j][1] = remote[1];
-        peer_rsf[j] = remote[2];
-        peer_ag[j][0] = remote[3];
-        peer_ag[j][1] = remote[4];
-        peer_agf[j] = remote[5];
+        RegionInfo remote[4];
+        rdma_exchange_regions(conns[j], local, 4, remote);
+        peer_rs[j] = remote[0];
+        peer_rsf[j] = remote[1];
+        peer_ag[j] = remote[2];
+        peer_agf[j] = remote[3];
     }
 
-    double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
-
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
-
     int ok = 1;
+    double total_us = 0;
     for (int it = -1; it < iters; ++it) {
         int64_t epoch = it + 2;
-        int par = (int)(epoch & 1);
         double t0 = now_us();
 
         // Phase 1 (ReduceScatter): send my slice of every other rank's
@@ -184,18 +154,17 @@ int main(int argc, char** argv) {
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             *epoch_send[j] = epoch;
-            rdma_post_write_ex(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
-                               peer_rs[j][par].addr, peer_rs[j][par].rkey, 0);
-            rdma_post_write(conns[j], epoch_send[j], epoch_mr[j]->lkey, sizeof(int64_t),
-                            peer_rsf[j].addr, peer_rsf[j].rkey);
+            rdma_write(conns[j], phase1_src[j], phase1_src_mr[j]->lkey, chunk * sizeof(float),
+                       peer_rs[j].addr, peer_rs[j].rkey);
+            rdma_write(conns[j], epoch_send[j], epoch_mr[j]->lkey, sizeof(int64_t), peer_rsf[j].addr,
+                       peer_rsf[j].rkey);
         }
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             volatile int64_t* poll = (volatile int64_t*)rs_flag[j];
-            while (*poll < epoch) { /* spin */
+            while (*poll != epoch) { /* spin */
             }
         }
-        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         // reduced[] holds a per-peer registered COPY of my finished chunk
         // (one per outbound connection, since each has its own protection
         // domain) -- fill every copy with the same freshly-reduced data.
@@ -203,7 +172,7 @@ int main(int argc, char** argv) {
             float sum = input[(size_t)my_rank * chunk + i];
             for (int j = 0; j < n; ++j) {
                 if (j == my_rank) continue;
-                sum += rs_recv[j][par][i];
+                sum += rs_recv[j][i];
             }
             for (int j = 0; j < n; ++j) {
                 if (j == my_rank) continue;
@@ -211,44 +180,33 @@ int main(int argc, char** argv) {
             }
             output[(size_t)my_rank * chunk + i] = sum;
         }
-        // Phase-1 sends finished long ago (we just received every peer's data); collect them
-        // so only one signaled write per connection is ever outstanding.
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
 
         // Phase 2 (AllGather): broadcast my completed chunk to everyone.
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write_ex(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
-                               peer_ag[j][par].addr, peer_ag[j][par].rkey, 0);
-            rdma_post_write(conns[j], epoch_send[j], epoch_mr[j]->lkey, sizeof(int64_t),
-                            peer_agf[j].addr, peer_agf[j].rkey);
+            rdma_write(conns[j], reduced[j], reduced_mr[j]->lkey, chunk * sizeof(float),
+                       peer_ag[j].addr, peer_ag[j].rkey);
+            rdma_write(conns[j], epoch_send[j], epoch_mr[j]->lkey, sizeof(int64_t), peer_agf[j].addr,
+                       peer_agf[j].rkey);
         }
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             volatile int64_t* poll = (volatile int64_t*)ag_flag[j];
-            while (*poll < epoch) { /* spin */
+            while (*poll != epoch) { /* spin */
             }
-            __atomic_thread_fence(__ATOMIC_ACQUIRE);
-            memcpy(output + (size_t)j * chunk, ag_recv[j][par], chunk * sizeof(float));
+            memcpy(output + (size_t)j * chunk, ag_recv[j], chunk * sizeof(float));
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
 
         double elapsed = now_us() - t0;
         if (it == -1) {
             ok = verify(output, ref, M, 1e-3f);
             printf("Correctness check vs. CPU reference: %s\n", ok ? "PASSED" : "FAILED");
         } else {
-            lat[it] = elapsed;
+            total_us += elapsed;
         }
     }
-    rdma_print_stats("two-shot LL", lat, iters, n);
-    free(lat);
-
-    // Don't tear down connections while a peer may still be finishing its last round.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
+    printf("Average two-shot LL AllReduce latency over %d iters (%d ranks): %.3f us\n", iters, n,
+           total_us / iters);
 
     rdma_mesh_close(conns, n, my_rank);
     for (int r = 0; r < n; ++r) free(all_vecs[r]);
@@ -256,12 +214,12 @@ int main(int argc, char** argv) {
     free(ref);
     free(output);
     free(rs_recv);
-    free(ag_recv);
     free(rs_flag);
+    free(ag_recv);
     free(ag_flag);
     free(peer_rs);
-    free(peer_ag);
     free(peer_rsf);
+    free(peer_ag);
     free(peer_agf);
     free(phase1_src);
     free(phase1_src_mr);

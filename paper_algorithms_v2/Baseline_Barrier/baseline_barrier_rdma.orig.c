@@ -24,22 +24,6 @@
 //   node B: ./baseline_barrier_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 //   node C: ./baseline_barrier_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
-//   every peer back to back; completions are collected once, after the
-//   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
-//   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
-//   buffer was reused every round, so a fast peer's next-round write could
-//   overwrite data still being read (invisible to verification because every
-//   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
-//   and `!=` would spin forever if a peer is already one round ahead.
-// * Per-iteration timing (min/median/p99/max), a start barrier and an end
-//   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
-
 #include "../common/rdma_common.h"
 
 #define BASELINE_SEED_BASE 7000
@@ -90,58 +74,39 @@ int main(int argc, char** argv) {
     reference_sum_n(all_vecs, n, ref, M);
     float* output = malloc(M * sizeof(float));
 
-    float* (*data_recv)[2] = calloc((size_t)n, sizeof(*data_recv));  // [peer][round parity]
-    RegionInfo (*peer_data)[2] = calloc((size_t)n, sizeof(*peer_data));
+    float** data_recv = calloc((size_t)n, sizeof(float*));
+    RegionInfo* peer_data = calloc((size_t)n, sizeof(RegionInfo));
     float** input_reg = calloc((size_t)n, sizeof(float*));
     struct ibv_mr** input_mr = calloc((size_t)n, sizeof(struct ibv_mr*));
 
     for (int j = 0; j < n; ++j) {
         if (j == my_rank) continue;
-        struct ibv_mr* data_recv_mr[2];
-        for (int b = 0; b < 2; ++b)
-            data_recv[j][b] = rdma_reg_buffer(conns[j], M * sizeof(float), &data_recv_mr[b]);
+        struct ibv_mr* data_recv_mr;
+        data_recv[j] = rdma_reg_buffer(conns[j], M * sizeof(float), &data_recv_mr);
         input_reg[j] = rdma_reg_buffer(conns[j], M * sizeof(float), &input_mr[j]);
         memcpy(input_reg[j], input, M * sizeof(float));
 
-        RegionInfo local[2] = {
-            {(uint64_t)(uintptr_t)data_recv[j][0], data_recv_mr[0]->rkey,
-             (uint32_t)(M * sizeof(float))},
-            {(uint64_t)(uintptr_t)data_recv[j][1], data_recv_mr[1]->rkey,
-             (uint32_t)(M * sizeof(float))},
-        };
-        RegionInfo remote[2];
-        rdma_exchange_regions(conns[j], local, 2, remote);
-        peer_data[j][0] = remote[0];
-        peer_data[j][1] = remote[1];
+        RegionInfo local[1] = {
+            {(uint64_t)(uintptr_t)data_recv[j], data_recv_mr->rkey, (uint32_t)(M * sizeof(float))}};
+        RegionInfo remote[1];
+        rdma_exchange_regions(conns[j], local, 1, remote);
+        peer_data[j] = remote[0];
     }
 
-    double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
-
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
-
     int ok = 1;
+    double total_us = 0;
     for (int it = -1; it < iters; ++it) {
-        int par = (it + 1) % 2;  // double-buffered so a peer's next-round write can't clobber this one
         double t0 = now_us();
 
-        // Post every write first, then wait for all of them (one overlapped pass instead of one
-        // blocking round trip per peer). They MUST be drained before the barrier below:
-        // rdma_barrier() polls the same CQ and would otherwise consume a write completion.
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
-            rdma_post_write(conns[j], input_reg[j], input_mr[j]->lkey, M * sizeof(float),
-                            peer_data[j][par].addr, peer_data[j][par].rkey);
+            rdma_write(conns[j], input_reg[j], input_mr[j]->lkey, M * sizeof(float), peer_data[j].addr,
+                       peer_data[j].rkey);
         }
-        for (int j = 0; j < n; ++j)
-            if (j != my_rank) rdma_wait_write(conns[j]);
         // ---- THE BARRIER ----
         // A genuine two-sided round trip PER PEER CONNECTION: only once
         // every one of these returns is any side allowed to assume every
-        // peer's write has landed. (This is the cost the barrier-free
-        // algorithms exist to remove, so it is deliberately left as-is.)
+        // peer's write has landed.
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             rdma_barrier(conns[j]);
@@ -151,7 +116,7 @@ int main(int argc, char** argv) {
             float sum = input[i];
             for (int j = 0; j < n; ++j) {
                 if (j == my_rank) continue;
-                sum += data_recv[j][par][i];
+                sum += data_recv[j][i];
             }
             output[i] = sum;
         }
@@ -161,19 +126,15 @@ int main(int argc, char** argv) {
             ok = verify(output, ref, M, 1e-3f);
             printf("Correctness check vs. CPU reference: %s\n", ok ? "PASSED" : "FAILED");
         } else {
-            lat[it] = elapsed;
+            total_us += elapsed;
         }
     }
-    rdma_print_stats("barrier-based one-shot", lat, iters, n);
-    free(lat);
+    printf("Average barrier-based one-shot AllReduce latency over %d iters (%d ranks): %.3f us\n",
+           iters, n, total_us / iters);
     printf(
         "Compare this against LL/, Sentinel/, Twoshot_LL/, Twoshot_Sentinel/ and "
         "LL128_Atomic/ at the same numFloats/numFloats-per-rank to see the barrier-free "
         "speedup directly.\n");
-
-    // Don't tear down connections while a peer may still be finishing its last round.
-    for (int j = 0; j < n; ++j)
-        if (j != my_rank) rdma_barrier(conns[j]);
 
     rdma_mesh_close(conns, n, my_rank);
     for (int r = 0; r < n; ++r) free(all_vecs[r]);

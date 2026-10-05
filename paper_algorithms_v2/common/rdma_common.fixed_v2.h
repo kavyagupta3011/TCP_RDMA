@@ -81,9 +81,6 @@ typedef struct {
     // from what the HCA actually granted; 0 if inline is unavailable.
     uint32_t max_inline;
 
-    // Which of the two bootstrap receive slots the NEXT incoming SEND lands in.
-    int boot_slot;
-
     // Small fixed bootstrap buffers used only for rdma_exchange_regions()
     // and rdma_barrier() -- ordinary two-sided SEND/RECV, not part of any
     // algorithm's data path.
@@ -171,26 +168,6 @@ void rdma_write(RdmaConn* conn, void* local_addr, uint32_t lkey, size_t len,
 void rdma_post_write(RdmaConn* conn, void* local_addr, uint32_t lkey, size_t len,
                       uint64_t remote_addr, uint32_t rkey);
 void rdma_wait_write(RdmaConn* conn);
-
-// Same as rdma_post_write() but `signaled` = 0 posts it with no completion of
-// its own. Use this for the DATA write that is immediately followed (same QP)
-// by a signaled flag write / atomic: RC completes work requests in order, so
-// the later signaled completion also proves the earlier unsignaled write is
-// done. The caller must still call exactly one rdma_wait_write()/
-// rdma_wait_atomic() for the signaled one, and must not touch the source
-// buffer of an unsignaled non-inline write until then.
-void rdma_post_write_ex(RdmaConn* conn, void* local_addr, uint32_t lkey, size_t len,
-                         uint64_t remote_addr, uint32_t rkey, int signaled);
-
-// Non-blocking split of rdma_atomic_fetch_add() (old value is discarded --
-// the callers here only use the atomic as a completion counter). Exactly one
-// atomic may be outstanding per connection between post and wait.
-void rdma_post_atomic_add(RdmaConn* conn, uint64_t remote_addr, uint32_t rkey, int64_t add_val);
-void rdma_wait_atomic(RdmaConn* conn);
-
-// Per-iteration latency summary: prints "Average <name> AllReduce latency over
-// <iters> iters (<ranks> ranks): X us" plus min/median/p99/max. Sorts `lat`.
-void rdma_print_stats(const char* name, double* lat, int iters, int ranks);
 
 // Native InfiniBand atomic fetch-and-add (IBV_WR_ATOMIC_FETCH_AND_ADD) on
 // the PEER's 8-byte-aligned remote memory. Real RDMA atomics are 64-bit
