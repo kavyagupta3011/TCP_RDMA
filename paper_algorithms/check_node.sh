@@ -1,19 +1,13 @@
 #!/bin/bash
 # check_node.sh
 #
-# Run this on your professor's cluster node (the one with GPU + NVLink
-# access) and paste the FULL output back. It gathers everything needed to:
-#   - pick the right `ARCH=` value for the Makefiles in this project
-#   - confirm the GPUs are actually NVLink-connected (required -- see the
-#     top-level README's "Requirements" section)
-#   - write you a PBS submission script that matches this cluster's actual
-#     queue names, GPU resource syntax, and available modules
+# Prints information about a cluster node (GPUs, NVLink, CUDA, PBS queues, modules) so
+# that the ARCH value in the Makefiles and the PBS script can be set correctly.
 #
 # Usage:
 #   bash check_node.sh > node_info.txt
-# then share node_info.txt (or just paste the terminal output).
 #
-# Nothing here modifies anything -- every command is read-only.
+# Read-only: nothing is modified.
 
 echo "===== Hostname / OS ====="
 hostname

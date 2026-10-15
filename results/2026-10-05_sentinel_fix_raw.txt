@@ -2,7 +2,7 @@ RAW OUTPUT -- PBS job 28572 (run_sentinel.pbs), 2026-10-05
 Cluster: 172.16.201.12, 3 compute nodes (compute00/01/02), Mellanox ConnectX-3 (mlx4_0), IPoIB 10.1.2.10-12
 Parameters: 3 ranks, numFloats=65536 (256 KiB), iters=100, base_port=20000
 Code: paper_algorithms_v2 with the Sentinel re-arm fix (slot reset to sentinel after each consume),
-      start/end barriers, per-iteration timing. Originals kept as *.orig.c.
+      start/end barriers, per-iteration timing.
 Source file on cluster: /home/student4/.pbs_route/output/student4_20261005_073728_117238717.out
 
 === Sentinel (3 ranks) ===

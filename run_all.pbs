@@ -5,33 +5,29 @@
 #PBS -l walltime=00:45:00
 #PBS -S /bin/bash
 
-# =============================================================================
-# ONE script for every experiment. Choose what to run at submit time with
-# environment variables (qsub -v). Lists are COLON-separated (a comma would be
-# taken as the next variable by qsub -v).
+# Runs the AllReduce programs on the allocated nodes. What to run is set with
+# environment variables (qsub -v). Lists are colon-separated, variables comma-separated.
 #
-#   PROGRAMS  which algorithms to run (default: all seven)
+#   PROGRAMS  algorithms to run (default: the seven AllReduce programs)
 #               Baseline_Barrier : LL : Sentinel : Twoshot_LL : Twoshot_Sentinel :
 #               LL128_Atomic : Bidirectional_DoubleBuffering : Atomic_Probe
-#   SIZES     message sizes in FLOATS (default 32:256:1024:4096:16384
+#   SIZES     message sizes in floats (default 32:256:1024:4096:16384
 #             = 128 B, 1 KiB, 4 KiB, 16 KiB, 64 KiB)
-#   ITERS     timed iterations per run            (default 1000)
-#   TIMEOUT   per-run hard limit in seconds       (default 90; a hang shows as exit=124)
+#   ITERS     timed iterations per run (default 1000)
+#   TIMEOUT   per-run limit in seconds (default 90; a hang shows as exit=124)
 #   BASE      folder holding the program folders
 #             (default /home/student4/IMT2023016/paper_algorithms_v2)
 #
-# Number of ranks = number of nodes you ask for (-l nodes=N:ppn=1, default 3).
+# Number of ranks = number of nodes requested (-l nodes=N:ppn=1, default 3).
 # Bidirectional_DoubleBuffering and Atomic_Probe always use exactly 2 ranks.
 #
 # Examples (run from ~/IMT2023016):
-#   qsub run_all.pbs                                   # everything, 5 sizes, 3 ranks
+#   qsub run_all.pbs
 #   qsub -v PROGRAMS=Sentinel:Twoshot_Sentinel run_all.pbs
-#   qsub -v PROGRAMS=LL:Twoshot_LL,SIZES=32:512 run_all.pbs   # comma between variables,
-#                                                             # colon between list items
-#   qsub -v SIZES=65536,ITERS=100 run_all.pbs          # the original 256 KiB run
-#   qsub -v PROGRAMS=Atomic_Probe run_all.pbs          # hardware atomic-support diagnostic
-#   qsub -l nodes=5:ppn=1 run_all.pbs                  # 5 ranks
-# =============================================================================
+#   qsub -v PROGRAMS=LL:Twoshot_LL,SIZES=32:512 run_all.pbs
+#   qsub -v SIZES=65536,ITERS=100 run_all.pbs
+#   qsub -v PROGRAMS=Atomic_Probe run_all.pbs
+#   qsub -l nodes=5:ppn=1 run_all.pbs
 
 set -u
 BASE="${BASE:-/home/student4/IMT2023016/paper_algorithms_v2}"

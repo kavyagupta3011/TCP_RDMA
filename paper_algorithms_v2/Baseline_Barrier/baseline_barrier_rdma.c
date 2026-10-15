@@ -1,44 +1,14 @@
 // baseline_barrier_rdma.c
 //
-// A "conventional" one-shot, N-NODE AllReduce-sum that DOES use an explicit
-// synchronization barrier between the push and the reduce step -- the
-// design the paper's Section III-B examines and then eliminates (Fig. 3),
-// over real InfiniBand RDMA verbs. See ../README.md and the original CUDA
-// project's Baseline_Barrier/README.md for the full rationale.
-//
-// Mechanism: every rank writes its full input directly into every other
-// rank's per-peer scratch buffer (plain RDMA WRITE, no flag, no polling for
-// arrival at all). Correctness then depends ENTIRELY on rdma_barrier() -- a
-// genuine two-sided SEND + RECV round trip -- confirming, on EVERY peer
-// connection, that both sides' writes have landed before either side reads
-// its scratch buffers. With N ranks that's N-1 sequential barrier round
-// trips per round (one per connection) -- deliberately not parallelized,
-// since the whole point of this file is to be the "before" number the
-// other six programs' barrier-free "after" numbers get compared against;
-// making the barrier itself faster would undercut that comparison.
+// Baseline AllReduce (sum) for N nodes. Every rank writes its whole input into every
+// other rank's receive buffer, then an explicit two-sided barrier (rdma_barrier) makes
+// sure the writes have landed before anyone reads. This is the "with barrier" case the
+// other algorithms are compared against.
 //
 // Usage:
 //   ./baseline_barrier_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
-// No MPI -- launch once per rank by hand. Example for 3 ranks:
-//   node A: ./baseline_barrier_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node B: ./baseline_barrier_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node C: ./baseline_barrier_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
-//   every peer back to back; completions are collected once, after the
-//   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
-//   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
-//   buffer was reused every round, so a fast peer's next-round write could
-//   overwrite data still being read (invisible to verification because every
-//   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
-//   and `!=` would spin forever if a peer is already one round ahead.
-// * Per-iteration timing (min/median/p99/max), a start barrier and an end
-//   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
+// Example for 3 ranks (one process per node):
+//   ./baseline_barrier_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
 #include "../common/rdma_common.h"
 
@@ -117,8 +87,7 @@ int main(int argc, char** argv) {
 
     double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
 
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
+    // Barrier so all ranks start together (keeps connection-setup skew out of the first timed round).
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 
@@ -127,9 +96,8 @@ int main(int argc, char** argv) {
         int par = (it + 1) % 2;  // double-buffered so a peer's next-round write can't clobber this one
         double t0 = now_us();
 
-        // Post every write first, then wait for all of them (one overlapped pass instead of one
-        // blocking round trip per peer). They MUST be drained before the barrier below:
-        // rdma_barrier() polls the same CQ and would otherwise consume a write completion.
+        // Post every write first, then wait for all of them. They must finish before the barrier
+        // below because rdma_barrier() polls the same CQ and would consume a write completion.
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             rdma_post_write(conns[j], input_reg[j], input_mr[j]->lkey, M * sizeof(float),
@@ -137,11 +105,8 @@ int main(int argc, char** argv) {
         }
         for (int j = 0; j < n; ++j)
             if (j != my_rank) rdma_wait_write(conns[j]);
-        // ---- THE BARRIER ----
-        // A genuine two-sided round trip PER PEER CONNECTION: only once
-        // every one of these returns is any side allowed to assume every
-        // peer's write has landed. (This is the cost the barrier-free
-        // algorithms exist to remove, so it is deliberately left as-is.)
+        // Barrier: a two-sided round trip with each peer. Only after these return can we
+        // assume every peer's write has landed.
         for (int j = 0; j < n; ++j) {
             if (j == my_rank) continue;
             rdma_barrier(conns[j]);
@@ -171,7 +136,7 @@ int main(int argc, char** argv) {
         "LL128_Atomic/ at the same numFloats/numFloats-per-rank to see the barrier-free "
         "speedup directly.\n");
 
-    // Don't tear down connections while a peer may still be finishing its last round.
+    // Barrier so no rank closes its connections while a peer is still in its last round.
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 

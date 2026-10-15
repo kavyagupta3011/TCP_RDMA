@@ -1,28 +1,15 @@
 // twoshot_sentinel_allreduce_rdma.c
 //
-// Two-shot, N-NODE AllReduce-sum using Sentinel synchronization for both
-// phases, Table I row "Two-shot (Sentinel)", over real InfiniBand RDMA
-// verbs. Combines Twoshot_LL/'s N-ary two-phase (ReduceScatter + AllGather)
-// structure with Sentinel/'s double-buffering-across-iterations trick for
-// avoiding a per-round reset barrier -- read both of those files' headers
-// first; this one doesn't repeat their reasoning.
-//
-// Each (phase, peer) pair gets its own PAIR of sentinel-initialized scratch
-// buffers (reset once, at startup, right after that connection is
-// established), ping-ponged by round parity -- same "implicit permission"
-// argument Sentinel/ gives for why that's safe with no per-round reset,
-// just applied independently per peer per phase here.
-//
-// See Twoshot_LL/'s header for the exact chunk-ownership convention (rank c
-// owns chunk c) and the peer-buffer naming (peer_rs[j]/peer_ag[j] mean "the
-// address I write MY contribution for rank j into").
+// Two-shot AllReduce (sum) for N nodes with Sentinel synchronization in both phases,
+// written with InfiniBand RDMA verbs. Same ReduceScatter + AllGather structure as
+// Twoshot_LL (rank c owns chunk c), but arrival is detected with the sentinel value
+// instead of a flag. Each (phase, peer) pair has two sentinel-filled buffers used
+// alternately by round parity, and each slot is re-armed after it is consumed.
 //
 // Usage:
 //   ./twoshot_sentinel_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
-// No MPI -- launch once per rank by hand. Example for 3 ranks:
-//   node A: ./twoshot_sentinel_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node B: ./twoshot_sentinel_allreduce_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node C: ./twoshot_sentinel_allreduce_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
+// Example for 3 ranks (one process per node):
+//   ./twoshot_sentinel_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
 #include "../common/rdma_common.h"
 
@@ -47,8 +34,7 @@ static int cmp_double(const void* a, const void* b) {
     return (x > y) - (x < y);
 }
 
-// Per-iteration latency summary. The mean alone hides one-off stalls (a late
-// rank, a page fault); min/median/p99 show what a typical round really costs.
+// Per-iteration latency summary (average, min, median, p99, max).
 static void print_stats(const char* name, double* lat, int iters, int ranks) {
     double sum = 0;
     for (int i = 0; i < iters; ++i) sum += lat[i];
@@ -112,11 +98,9 @@ int main(int argc, char** argv) {
 
     float sv = sentinel_value();
 
-    // Per peer j: rs_buf[j][0..1] (my receive slots for j's Phase-1
-    // contribution to MY chunk) and ag_buf[j][0..1] (my receive slots for
-    // j's completed chunk in Phase 2), each double buffered by round
-    // parity. Per-peer registered copies of my Phase-1 send slice and my
-    // finished chunk (separate PD per connection, as in Twoshot_LL/).
+    // Per peer j: rs_buf[j][0..1] receive j's phase 1 data for my chunk and ag_buf[j][0..1]
+    // receive j's finished chunk in phase 2, each double buffered by round parity. There
+    // are also per-peer registered copies of my phase 1 slice and my finished chunk.
     float* (*rs_buf)[2] = calloc((size_t)n, sizeof(*rs_buf));
     float* (*ag_buf)[2] = calloc((size_t)n, sizeof(*ag_buf));
     RegionInfo (*peer_rs)[2] = calloc((size_t)n, sizeof(*peer_rs));
@@ -156,8 +140,7 @@ int main(int argc, char** argv) {
 
     double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
 
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
+    // Barrier so all ranks start together (keeps connection-setup skew out of the first timed round).
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 

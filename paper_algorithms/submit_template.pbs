@@ -1,18 +1,11 @@
 #!/bin/bash
 # submit_template.pbs
 #
-# GENERIC TEMPLATE -- do not submit as-is. The lines marked "EDIT ME" below
-# depend on your cluster's actual queue names, GPU resource syntax, and
-# module names, none of which I can know without seeing the output of
-# check_node.sh run on your node. Run that script, paste back its output,
-# and I'll turn this into a submission script that actually matches your
-# cluster.
+# Template, not meant to be submitted as-is. The lines marked "EDIT ME" depend on the
+# cluster's queue names, GPU resource syntax and module names (see check_node.sh).
 #
-# What this script does, once filled in: builds and runs every algorithm
-# in paper_algorithms/ back-to-back on one compute node, saving each
-# program's output to its own log file, so you get one job submission that
-# produces all six results (5 techniques + baseline) for a given message
-# size.
+# Builds and runs every algorithm in paper_algorithms/ one after another on one compute
+# node, with each program's output going to its own log file.
 
 #PBS -N paper_algorithms
 #PBS -l select=1:ncpus=8:ngpus=4
@@ -22,8 +15,8 @@
 #PBS -o paper_algorithms.log
 
 # ---- EDIT ME: module load lines ----
-# Most clusters require loading CUDA explicitly before nvcc is on PATH.
-# Replace with whatever `module avail` showed in check_node.sh's output.
+# CUDA usually has to be loaded before nvcc is on PATH.
+# Replace with what `module avail` shows.
 module load cuda
 
 cd "$PBS_O_WORKDIR"/paper_algorithms || exit 1

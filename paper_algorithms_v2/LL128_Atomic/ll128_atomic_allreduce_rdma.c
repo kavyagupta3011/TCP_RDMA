@@ -1,63 +1,20 @@
 // ll128_atomic_allreduce_rdma.c
 //
-// Two-shot, N-NODE AllReduce-sum using a genuine hardware atomic as the
-// completion signal -- the actual core idea of the paper's LL128 Atomic
-// algorithm (Section IV.B.4, Fig. 5) -- over real InfiniBand RDMA verbs.
-// See ../README.md for why this version exists, and Twoshot_LL/'s header
-// for the N-ary ReduceScatter+AllGather chunk-ownership convention this
-// file also uses.
+// Two-shot AllReduce (sum) for N nodes where completion is signalled by an RDMA atomic
+// fetch-and-add on a remote counter (LL128 Atomic, Section IV.B.4 of the paper), written
+// with InfiniBand RDMA verbs. Chunk ownership is the same as Twoshot_LL (rank c owns
+// chunk c).
 //
-// IMPORTANT hardware-honesty note, please read before comparing this to the
-// original CUDA LL128_Atomic implementation or to the paper itself: on
-// NVLink, the paper's design gets TWO things from one hardware primitive --
-// (a) multiple GPUs' FLOATING-POINT data contributions are summed directly
-// by the memory fabric via a cache-line atomic add, AND (b) a per-group
-// counter, packed into the same atomic-add stream, signals "everyone has
-// contributed" once it reaches N, with no separate flag. InfiniBand's
-// native RDMA atomic (IBV_WR_ATOMIC_FETCH_AND_ADD) is a real, genuine
-// hardware atomic -- but it operates on a 64-bit SIGNED INTEGER, not a
-// float; there is no remote floating-point atomic add on InfiniBand. So
-// this version keeps (b) -- the atomic really does serve as the completion
-// signal, with no separate flag write anywhere -- but cannot keep (a): the
-// actual floating-point DATA still arrives via an ordinary RDMA WRITE into
-// a per-sender slot (exactly like Twoshot_LL/Sentinel) and is summed
-// locally by the CPU once the atomic counter says it's ready.
-//
-// Because each counter is incremented by a real atomic add rather than
-// overwritten by a plain WRITE, it's naturally monotonic across the whole
-// program's lifetime (never needs resetting) -- exactly like LL's epoch
-// flag, just advanced by hardware ADD instead of overwritten by hand. In
-// the N-node generalization, EVERY one of my N-1 peers issues one atomic
-// +1 to my counter each round (one per phase), so my counter's value after
-// round `it` (counting the correctness round as it=-1) is
-// (it+2)*(num_ranks-1) -- that is this file's `expect` value below. At N=2
-// this collapses to exactly the original formula (expect = it+2).
-// WRITE(data) is posted before ATOMIC_FETCH_AND_ADD(counter, +1) on the
-// same QP each round/peer, so RC ordering guarantees the data has landed by
-// the time the counter reflects it.
+// InfiniBand atomics work on 64-bit integers only, so the float data is sent with a normal
+// RDMA write and summed by the CPU; the atomic counter only tells the receiver that the
+// data is ready. The data write is posted first and the atomic second on the same QP, so
+// RC ordering guarantees the data has landed once the counter changes. The counter only
+// increases, so it never needs resetting.
 //
 // Usage:
 //   ./ll128_atomic_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
-// No MPI -- launch once per rank by hand. Example for 3 ranks:
-//   node A: ./ll128_atomic_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node B: ./ll128_atomic_allreduce_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node C: ./ll128_atomic_allreduce_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
-//   every peer back to back; completions are collected once, after the
-//   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
-//   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
-//   buffer was reused every round, so a fast peer's next-round write could
-//   overwrite data still being read (invisible to verification because every
-//   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
-//   and `!=` would spin forever if a peer is already one round ahead.
-// * Per-iteration timing (min/median/p99/max), a start barrier and an end
-//   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
+// Example for 3 ranks (one process per node):
+//   ./ll128_atomic_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
 #include "../common/rdma_common.h"
 
@@ -107,10 +64,9 @@ int main(int argc, char** argv) {
 
     RdmaConn** conns = rdma_mesh_connect(my_rank, n, ips, base_port);
 
-    // This algorithm REQUIRES hardware RDMA atomics. Some adapters/firmware (including the
-    // ConnectX-3 on this cluster, measured with Atomic_Probe/) report atomic_cap = NONE, and
-    // every atomic post then fails with EINVAL. Every rank sees the same adapter model, so all
-    // ranks take this branch together and nobody is left waiting.
+    // This algorithm needs hardware RDMA atomics. Some adapters (including the ConnectX-3 on
+    // this cluster, checked with Atomic_Probe/) report atomic_cap = NONE and every atomic post
+    // then fails with EINVAL. All ranks have the same adapter, so they all take this branch.
     {
         struct ibv_device_attr dattr;
         memset(&dattr, 0, sizeof(dattr));
@@ -182,16 +138,14 @@ int main(int argc, char** argv) {
 
     double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
 
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
+    // Barrier so all ranks start together (keeps connection-setup skew out of the first timed round).
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 
     int ok = 1;
     for (int it = -1; it < iters; ++it) {
-        // FIX: each peer increments ITS OWN per-connection counter (rs_ctr[j]) by 1 per round,
-        // so after round `it` that counter equals it+2. The old (it+2)*(n-1) is only equal at
-        // n==2 and would spin forever at n>=3.
+        // Each peer adds 1 to its own per-connection counter (rs_ctr[j]) every round, so after
+        // round `it` that counter equals it+2.
         int64_t expect = it + 2;
         int par = (int)(expect & 1);
         double t0 = now_us();
@@ -254,7 +208,7 @@ int main(int argc, char** argv) {
     rdma_print_stats("two-shot LL128 Atomic", lat, iters, n);
     free(lat);
 
-    // Don't tear down connections while a peer may still be finishing its last round.
+    // Barrier so no rank closes its connections while a peer is still in its last round.
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 

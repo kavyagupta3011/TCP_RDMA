@@ -1,64 +1,19 @@
 // twoshot_ll_allreduce_rdma.c
 //
-// Two-shot, N-NODE AllReduce-sum using LL-style synchronization for both
-// phases, Table I row "Two-shot (LL)" of "Every us Matters: Achieving Near
-// Speed-of-Light Latency in GPU Collectives" (arXiv:2607.16100), over real
-// InfiniBand RDMA verbs. See ../README.md for why this version exists, and
-// LL/ll_allreduce_rdma.c for the RC-ordering trick (data WRITE, then a
-// trailing flag WRITE, same QP) both phases here reuse, and for the
-// per-peer-registration detail (every connection has its own protection
-// domain).
+// Two-shot AllReduce (sum) for N nodes with LL-style flags in both phases, written with
+// InfiniBand RDMA verbs. The vector is split into N chunks and rank c owns chunk c.
+//   Phase 1 (ReduceScatter): every rank sends its slice of chunk c to rank c, and rank c
+//   sums the N slices of its chunk.
+//   Phase 2 (AllGather): every rank sends its finished chunk to all other ranks.
+// Each data write is followed by an epoch flag write on the same QP (see LL/).
 //
-// General N ReduceScatter + AllGather: the M-element vector splits into N
-// chunks, one per rank -- rank c "owns" chunk c (index range
-// [c*chunk, (c+1)*chunk)).
-//
-//   Phase 1 (ReduceScatter): every rank r sends, to EVERY other rank c, its
-//   own local slice of chunk c. Once rank c has received chunk c's slice
-//   from all N-1 other ranks, it sums those with its OWN slice of chunk c
-//   and ends up as the sole holder of chunk c, fully reduced.
-//
-//   Phase 2 (AllGather): every rank c broadcasts its now-complete chunk c
-//   to all N-1 other ranks. Once every rank has received every chunk (its
-//   own, computed locally in Phase 1, plus N-1 received in Phase 2), every
-//   rank holds the full result.
-//
-// This is the real N-ary form Table I's "two-shot" row describes -- at N=2
-// it specializes to exactly the earlier pairwise version (see
-// ../README.md's "one-shot vs. two-shot at N=2" note); the traffic
-// reduction two-shot is usually chosen for only shows up once N>2, which is
-// exactly what this generalization now demonstrates.
-//
-// Per-peer buffer naming: for peer j, `rs_recv[j]`/`rs_flag[j]` is MY
-// receive slot for peer j's Phase-1 contribution to MY chunk; `ag_recv[j]`/
-// `ag_flag[j]` is MY receive slot for peer j's completed chunk in Phase 2.
-// Each connection's rdma_exchange_regions call swaps these addresses
-// symmetrically, so `peer_rs_data[j]` ends up meaning "the address I write
-// MY Phase-1 contribution to rank j's chunk into" -- i.e. rank j's
-// rs_recv[my_rank].
+// For peer j, rs_recv[j]/rs_flag[j] receive j's phase 1 data for my chunk, and
+// ag_recv[j]/ag_flag[j] receive j's finished chunk in phase 2.
 //
 // Usage:
 //   ./twoshot_ll_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
-// No MPI -- launch once per rank by hand. Example for 3 ranks:
-//   node A: ./twoshot_ll_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node B: ./twoshot_ll_allreduce_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node C: ./twoshot_ll_allreduce_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
-//   every peer back to back; completions are collected once, after the
-//   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
-//   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
-//   buffer was reused every round, so a fast peer's next-round write could
-//   overwrite data still being read (invisible to verification because every
-//   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
-//   and `!=` would spin forever if a peer is already one round ahead.
-// * Per-iteration timing (min/median/p99/max), a start barrier and an end
-//   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
+// Example for 3 ranks (one process per node):
+//   ./twoshot_ll_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
 #include "../common/rdma_common.h"
 
@@ -168,8 +123,7 @@ int main(int argc, char** argv) {
 
     double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
 
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
+    // Barrier so all ranks start together (keeps connection-setup skew out of the first timed round).
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 
@@ -196,9 +150,8 @@ int main(int argc, char** argv) {
             }
         }
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
-        // reduced[] holds a per-peer registered COPY of my finished chunk
-        // (one per outbound connection, since each has its own protection
-        // domain) -- fill every copy with the same freshly-reduced data.
+        // reduced[j] is a per-peer registered copy of my finished chunk (each connection has its
+        // own protection domain), so fill every copy with the same reduced data.
         for (size_t i = 0; i < chunk; ++i) {
             float sum = input[(size_t)my_rank * chunk + i];
             for (int j = 0; j < n; ++j) {
@@ -246,7 +199,7 @@ int main(int argc, char** argv) {
     rdma_print_stats("two-shot LL", lat, iters, n);
     free(lat);
 
-    // Don't tear down connections while a peer may still be finishing its last round.
+    // Barrier so no rank closes its connections while a peer is still in its last round.
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 

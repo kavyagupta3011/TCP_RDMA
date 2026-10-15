@@ -1,10 +1,9 @@
 // atomic_probe.c
 //
-// Diagnostic only -- NOT an AllReduce algorithm. LL128_Atomic fails on this
-// cluster with ibv_post_send(ATOMIC_FETCH_AND_ADD) returning EINVAL (22). This
-// program isolates why by (1) printing what the HCA/QP report about atomics and
-// (2) trying several variants of an atomic post on one connection, printing the
-// raw return code of each instead of exiting on the first failure.
+// Diagnostic only, not an AllReduce algorithm. LL128_Atomic fails on this cluster with
+// ibv_post_send(ATOMIC_FETCH_AND_ADD) returning EINVAL (22). This program prints what the
+// HCA and QP report about atomics and tries several variants of an atomic post on one
+// connection, printing the return code of each.
 //
 // Usage (launch once per rank, same arguments as the algorithms):
 //   ./atomic_probe <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [ignored...]

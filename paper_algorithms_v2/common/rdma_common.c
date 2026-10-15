@@ -45,16 +45,10 @@ static void build_qp(RdmaConn* conn) {
     conn->max_inline = qp_attr.cap.max_inline_data;
 }
 
-// Pre-posts a receive for the bootstrap RECV buffer -- required before the
-// peer's matching SEND can land, standard RC-QP requirement.
-//
-// TWO receives are kept posted at all times, each into its own slot of
-// boot_recv_buf. With only one, a peer that finishes an exchange/barrier and
-// immediately starts the next one can SEND before this side has re-posted its
-// receive -> receiver-not-ready NAK -> the sender sits out a retry timer
-// (observed as a one-off ~2 s stall in Baseline_Barrier, identical on all
-// ranks). Separate slots also keep a second message from overwriting the
-// first before it has been copied out.
+// Pre-posts receives for the bootstrap RECV buffer (needed before a peer's SEND can land).
+// Two receives are kept posted at all times, each into its own slot. With only one, a peer
+// that finishes one exchange/barrier and starts the next can SEND before this side has
+// re-posted its receive, which gives a receiver-not-ready NAK and a ~2 s retry stall.
 static void post_boot_recv(RdmaConn* conn, int slot) {
     struct ibv_sge sge;
     sge.addr = (uintptr_t)(conn->boot_recv_buf + (size_t)slot * MAX_REGIONS);
@@ -183,9 +177,7 @@ RdmaConn* rdma_client_connect(const char* server_ip, int port) {
     return conn;
 }
 
-// Deterministic, collision-free port for pair (a,b), a<b, computed
-// identically by every rank from n and base_port alone -- no coordination
-// needed to agree who listens where.
+// Port for pair (a,b) with a<b. Every rank computes it the same way from n and base_port.
 static int mesh_port(int a, int b, int n, int base_port) {
     return base_port + a * n + b;
 }
@@ -195,20 +187,15 @@ RdmaConn** rdma_mesh_connect(int my_rank, int n, const char** ips, int base_port
     RdmaConn** result = calloc((size_t)n, sizeof(RdmaConn*));
     RDMA_CHECK(result != NULL, "calloc (mesh result) failed");
 
-    // Phase A: start every listener this rank will ever need -- one per
-    // pair (my_rank, j) with j > my_rank -- BEFORE any rank tries to
-    // connect to any of them. This is what makes the "no MPI, just start
-    // every process by hand, in any order" launch model safe: there is no
-    // window where a client could reach a server that hasn't called
-    // rdma_listen() yet.
+    // Phase A: start every listener this rank needs (one per pair (my_rank, j) with
+    // j > my_rank) before any rank tries to connect, so a client never reaches a server that
+    // is not listening yet.
     for (int j = my_rank + 1; j < n; ++j) {
         result[j] = rdma_server_listen_only(ips[my_rank], mesh_port(my_rank, j, n, base_port));
     }
 
-    // Phase B: every rank walks the exact same pair sequence (0,1),(0,2),
-    // ...,(0,n-1),(1,2),...,(n-2,n-1) and only acts on the pairs it's a
-    // member of -- so "which connection is this" is never ambiguous, with
-    // zero messages exchanged to agree on it.
+    // Phase B: every rank walks the same sequence of pairs (0,1),(0,2),...,(n-2,n-1) and only
+    // acts on the pairs it belongs to.
     for (int a = 0; a < n; ++a) {
         for (int b = a + 1; b < n; ++b) {
             if (my_rank == a) {
@@ -218,9 +205,7 @@ RdmaConn** rdma_mesh_connect(int my_rank, int n, const char** ips, int base_port
                 printf("[mesh] connecting to rank %d (%s) ...\n", a, ips[a]);
                 result[a] = rdma_client_connect(ips[a], mesh_port(a, b, n, base_port));
             }
-            // else: pair (a,b) doesn't involve my_rank -- both actual
-            // members handle it independently; this rank just moves on to
-            // the next pair in the shared sequence.
+            // else: this pair does not involve my_rank, move on to the next pair.
         }
     }
 
@@ -283,9 +268,8 @@ void rdma_exchange_regions(RdmaConn* conn, RegionInfo* local, int n, RegionInfo*
     RDMA_CHECK(ibv_post_send(conn->qp, &wr, &bad_wr) == 0,
                "ibv_post_send (region exchange) failed");
 
-    // The RECV was already posted (post_boot_recv, called from
-    // alloc_bootstrap_buffers / after each prior exchange) -- wait for
-    // both: our SEND completing, and the peer's SEND landing in our RECV.
+    // The RECV was already posted, so wait for both: our SEND completing and the peer's
+    // SEND landing in our RECV.
     poll_one(conn->cq, 0x5E0D);
     poll_one(conn->cq, 0xB00710);
 
@@ -445,8 +429,7 @@ float* make_random_vector(size_t n, unsigned seed) {
     RDMA_CHECK(v != NULL, "malloc (random vector) failed");
     unsigned state = seed;
     for (size_t i = 0; i < n; ++i) {
-        // Simple xorshift-ish LCG, portable and deterministic across runs
-        // for a given seed -- good enough for a reference-vector generator.
+        // Simple LCG, deterministic for a given seed.
         state = state * 1103515245u + 12345u;
         float u = (float)((state >> 8) & 0xFFFFFF) / (float)0xFFFFFF;  // [0,1)
         v[i] = u * 2.0f - 1.0f;                                        // [-1,1)

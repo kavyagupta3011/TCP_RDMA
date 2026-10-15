@@ -1,50 +1,19 @@
 // sentinel_allreduce_rdma.c
 //
-// One-shot, N-NODE AllReduce-sum using the Sentinel synchronization idea,
-// Section IV.B.2 of "Every us Matters: Achieving Near Speed-of-Light
-// Latency in GPU Collectives" (arXiv:2607.16100), over real InfiniBand RDMA
-// verbs. See ../README.md for why this version exists, and
-// LL/ll_allreduce_rdma.c for the RC-ordering background and the
-// per-peer-registration detail (every connection has its own protection
-// domain) this file also relies on.
+// One-shot AllReduce (sum) for N nodes using the Sentinel idea (Section IV.B.2 of the
+// paper), written with InfiniBand RDMA verbs. Every rank writes its whole input into a
+// buffer on each peer that was pre-filled with a reserved sentinel value (a NaN bit
+// pattern). The receiver spins until a value is no longer the sentinel, then sums. There
+// is one write per peer per round and no flag.
 //
-// The idea: write real data directly (full width, no flag) into a buffer
-// pre-filled with a reserved sentinel bit pattern; the receiver polls for
-// the value to stop matching the sentinel. Single RDMA WRITE per peer per
-// round (no trailing flag write).
-//
-// FIX (v3): the original version reset the buffers only once at setup, so
-// after rounds 0 and 1 both buffers held stale real data and the spin-wait
-// never waited -- latencies were not measuring a real exchange. Each slot is
-// now reset to the sentinel right after it is consumed (safe: the peer cannot
-// write round i+2 into this buffer until it has received MY round i+1 data,
-// which I only post after finishing round i, including the reset).
-//
-// The catch, exactly as the paper describes: the receiving buffer must be
-// reset to the sentinel value before it can be reused, and doing that
-// safely across REPEATED rounds between SEPARATE PROCESSES (no shared host
-// to sequence resets against sends) needs real coordination -- unless you
-// use the paper's own answer to that problem: double buffering (Section
-// IV.B.3), applied here across ALLREDUCE CALLS rather than across chunks
-// within one call. Every peer-pair gets TWO scratch regions, reset to the
-// sentinel exactly ONCE (right after that connection is established, which
-// is itself already a natural one-time synchronization point). Round i
-// writes into buffer (i % 2); because both sides execute rounds in the same
-// strict sequential order, by the time round i+2 could possibly arrive at a
-// buffer, its round-i contents have provably already been consumed. No
-// per-round reset, no per-round barrier, after the one-time initial reset.
-//
-// N-node generalization: same full-mesh push as LL/ -- every rank writes
-// its entire input to every other rank's per-peer sentinel buffer, and sums
-// its own input with all N-1 received vectors once every slot has stopped
-// reading as the sentinel.
+// After a value is consumed its slot is set back to the sentinel (re-armed). Two buffers
+// per peer are used alternately by round parity, so a fast peer cannot overwrite data
+// that is still being read.
 //
 // Usage:
 //   ./sentinel_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
-// No MPI -- launch once per rank by hand. Example for 3 ranks:
-//   node A: ./sentinel_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node B: ./sentinel_allreduce_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
-//   node C: ./sentinel_allreduce_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
+// Example for 3 ranks (one process per node):
+//   ./sentinel_allreduce_rdma 0 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
 #include "../common/rdma_common.h"
 
@@ -71,8 +40,7 @@ static int cmp_double(const void* a, const void* b) {
     return (x > y) - (x < y);
 }
 
-// Per-iteration latency summary. The mean alone hides one-off stalls (a late
-// rank, a page fault); min/median/p99 show what a typical round really costs.
+// Per-iteration latency summary (average, min, median, p99, max).
 static void print_stats(const char* name, double* lat, int iters, int ranks) {
     double sum = 0;
     for (int i = 0; i < iters; ++i) sum += lat[i];
@@ -131,9 +99,9 @@ int main(int argc, char** argv) {
 
     float sv = sentinel_value();
 
-    // Per peer: two sentinel-initialized receive buffers (double buffered
-    // across rounds), and -- since every connection has its own protection
-    // domain -- a per-peer registered copy of `input` to send from.
+    // Per peer: two receive buffers filled with the sentinel (used alternately by round
+    // parity) and, since every connection has its own protection domain, a registered copy
+    // of `input` to send from.
     float* (*recv_buf)[2] = calloc((size_t)n, sizeof(*recv_buf));
     RegionInfo (*peer_regions)[2] = calloc((size_t)n, sizeof(*peer_regions));
     float** input_reg = calloc((size_t)n, sizeof(float*));
@@ -158,8 +126,7 @@ int main(int argc, char** argv) {
 
     double* lat = malloc((size_t)(iters > 0 ? iters : 1) * sizeof(double));
 
-    // Start all ranks together so the first timed round doesn't absorb
-    // connection-setup skew between processes.
+    // Barrier so all ranks start together (keeps connection-setup skew out of the first timed round).
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 
@@ -183,8 +150,8 @@ int main(int argc, char** argv) {
                 while (is_sentinel(slot[i])) { /* spin */
                 }
                 sum += slot[i];
-                // RE-ARM: put the sentinel back now that this value is consumed, so the
-                // next use of this buffer (round it+2) blocks until fresh data lands.
+                // Put the sentinel back now that this value is consumed, so the next use of this
+                // buffer (round it+2) waits for fresh data.
                 slot[i] = sv;
             }
             output[i] = sum;
@@ -203,7 +170,7 @@ int main(int argc, char** argv) {
     print_stats("one-shot Sentinel", lat, iters, n);
     free(lat);
 
-    // Don't tear down connections while a peer may still be finishing its last round.
+    // Barrier so no rank closes its connections while a peer is still in its last round.
     for (int j = 0; j < n; ++j)
         if (j != my_rank) rdma_barrier(conns[j]);
 
