@@ -1,0 +1,57 @@
+Experiments to run (paper_algorithms_v2, 3 nodes, one rank per node)
+
+Why: the first numbers (465 us, 510 us) were for 256 KiB from older buggy code,
+and no size was stated. This time every number comes with its size, from the
+final code, and we report the median.
+
+Sizes (the programs take the size in floats):
+  32 bytes  = 8 floats
+  32 KB     = 8192 floats
+  32 MB     = 8388608 floats
+
+Algorithms: Baseline_Barrier, LL, Sentinel, Twoshot_LL, Twoshot_Sentinel
+(3 ranks). Bidirectional_DoubleBuffering uses 2 ranks only, so keep it
+separate. LL128_Atomic is skipped (no RDMA atomics on this card).
+
+
+1. Network floor (do this first, takes a few minutes)
+   Run ibstat, ib_write_lat and ib_write_bw between two compute nodes if the
+   perftest tools are installed.
+   Gives the lowest time one RDMA write can take on this cluster. Without it
+   we cannot say how close the algorithms are to the limit, which is what
+   the paper does with its speed-of-light number.
+
+2. Main run: all algorithms at the three sizes
+   ITERS: 1000 for 32 B, 1000 for 32 KB, 100 for 32 MB.
+   Save the median, the minimum and the 99th percentile for each one, not
+   only the mean. The mean got pulled up earlier by a few 4-5 ms spikes.
+   Result: one table, rows = algorithm, columns = 32 B / 32 KB / 32 MB.
+   Before running, check that Twoshot works when the size does not divide by
+   3 (8, 8192 and 8388608 floats are none of them multiples of 3).
+
+3. Is the result correct
+   Each run should check the output against the expected sum. If a program
+   does not print this check, add it first. A fast wrong answer is no use.
+
+4. Are the spikes repeatable
+   Run Baseline_Barrier and LL at 32 B three times, at different times of day.
+   If the spikes move around, it is other jobs on the nodes. If they stay,
+   it is something in our code or the setup.
+
+5. Small speed-ups (only after 2 is saved, so we can compare)
+   a) change -O2 to -O3 in the Makefiles
+   b) sum in blocks of 4096 floats instead of one long loop
+   Re-run 32 MB and 32 KB only. Keep the old numbers next to the new ones.
+   The sum order is the same, so the output should be identical.
+
+6. If time is left
+   Same 32 B run with 2 ranks instead of 3, to see how latency grows with
+   the number of nodes.
+
+
+What goes to the professor:
+  - the table from 2 (medians), with the size written on every column
+  - the floor from 1, so the numbers have something to be compared with
+  - one line saying the old 256 KiB numbers are replaced
+  - the paper's own numbers (2.37 us small message on 4 GPUs, NVLink) only
+    as context, not as a like-for-like comparison
