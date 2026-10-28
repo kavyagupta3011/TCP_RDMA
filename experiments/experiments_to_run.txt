@@ -1,5 +1,10 @@
 Experiments to run (paper_algorithms_v2, 3 nodes, one rank per node)
 
+STATUS 2026-10-28: steps 1, 2, 3, 5 and 6 done; step 4 only partly (all repeats
+within 25 minutes, not at different times of day). Results and what is still
+open: results/SUMMARY_what_was_done.md. Correction: no "4-5 ms spikes" are in any
+saved results file; the line below about them was wrong.
+
 Why: the first numbers (465 us, 510 us) were for 256 KiB from older buggy code,
 and no size was stated. This time every number comes with its size, from the
 final code, and we report the median.

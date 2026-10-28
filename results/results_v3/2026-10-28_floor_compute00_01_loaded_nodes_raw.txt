@@ -1,0 +1,157 @@
+RAW OUTPUT -- PBS job 30191 (run_floor.pbs) on compute00/compute01, 2026-10-28
+Kept for the node load listing (leftover processes at 100% CPU) and the device name (mlx5_0).
+
+=== node info ===
+compute00.local
+10.1.1.10 10.1.2.10 
+hca_id:	mlx5_0
+	transport:			InfiniBand (0)
+	fw_ver:				10.10.5020
+	node_guid:			a4bf:0103:0030:14d0
+	sys_image_guid:			a4bf:0103:0030:14d0
+	vendor_id:			0x02c9
+	vendor_part_id:			4113
+	hw_ver:				0x0
+	board_id:			INT0030100001
+	phys_port_cnt:			1
+	Device ports:
+		port:	1
+			state:			PORT_ACTIVE (4)
+			max_mtu:		4096 (5)
+			active_mtu:		4096 (5)
+			sm_lid:			1
+			port_lid:		8
+			port_lmc:		0x00
+			link_layer:		InfiniBand
+
+--- load
+ 06:50:20 up 81 days, 14:30,  0 users,  load average: 5.00, 5.01, 5.05
+USER        PID     ELAPSED %CPU COMMAND
+student3  49531 41-18:52:26  100 bench
+student3 186934 22-08:32:25 99.9 eager
+student3 186984 22-08:31:53 99.9 eager
+student3 159522 23-20:21:12 99.7 eagerr
+student3 159523 23-20:21:12 99.7 eagerr
+root       1631 81-14:30:08  0.2 puppet
+root         10 81-14:30:39  0.1 rcu_sched
+---
+compute01.local
+10.1.1.11 10.1.2.11 
+hca_id:	mlx5_0
+	transport:			InfiniBand (0)
+	fw_ver:				10.10.5020
+	node_guid:			a4bf:0103:004a:fa5e
+	sys_image_guid:			a4bf:0103:004a:fa5e
+	vendor_id:			0x02c9
+	vendor_part_id:			4113
+	hw_ver:				0x0
+	board_id:			INT0030100001
+	phys_port_cnt:			1
+	Device ports:
+		port:	1
+			state:			PORT_ACTIVE (4)
+			max_mtu:		4096 (5)
+			active_mtu:		4096 (5)
+			sm_lid:			1
+			port_lid:		6
+			port_lmc:		0x00
+			link_layer:		InfiniBand
+
+--- load
+ 07:16:07 up 81 days, 14:20,  0 users,  load average: 2.00, 2.00, 1.97
+USER        PID     ELAPSED %CPU COMMAND
+student3 185602 22-08:32:27 99.9 eager
+student3 185645 22-08:31:55 99.9 eager
+root       1337 81-14:20:09  0.1 puppet
+root          1 81-14:20:35  0.0 systemd
+root          2 81-14:20:35  0.0 kthreadd
+root          3 81-14:20:35  0.0 ksoftirqd/0
+root          8 81-14:20:35  0.0 migration/0
+server (node 1) ib0 address: 10.1.2.11   device: mlx5_0
+
+=== ib_write_lat -a -F (client side) ===
+---------------------------------------------------------------------------------------
+                    RDMA_Write Latency Test
+ Dual-port       : OFF		Device         : mlx5_0
+ Number of qps   : 1		Transport type : IB
+ Connection type : RC		Using SRQ      : OFF
+ TX depth        : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 220[B]
+ rdma_cm QPs	 : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ local address: LID 0x08 QPN 0x198501 PSN 0xe95a70 RKey 0x13298b VAddr 0x002b1791c3a000
+ remote address: LID 0x06 QPN 0x5c119 PSN 0x66c872 RKey 0x116e01 VAddr 0x002b046e530000
+---------------------------------------------------------------------------------------
+ #bytes #iterations    t_min[usec]    t_max[usec]  t_typical[usec]    t_avg[usec]    t_stdev[usec]   99% percentile[usec]   99.9% percentile[usec] 
+ 2       1000          0.94           3.95         0.96     	       0.97        	0.08   		1.04    		3.95   
+ 4       1000          0.93           8.57         0.95     	       0.97        	0.35   		1.58    		8.57   
+ 8       1000          0.93           8.41         0.95     	       0.97        	0.35   		1.42    		8.41   
+ 16      1000          0.93           7.97         0.95     	       0.97        	0.33   		0.98    		7.97   
+ 32      1000          1.00           8.62         1.02     	       1.04        	0.33   		1.84    		8.62   
+ 64      1000          0.99           7.99         1.01     	       1.03        	0.27   		1.05    		7.99   
+ 128     1000          1.07           8.53         1.09     	       1.12        	0.35   		1.70    		8.53   
+ 256     1000          1.48           8.78         1.51     	       1.53        	0.32   		2.03    		8.78   
+ 512     1000          1.63           8.48         1.66     	       1.69        	0.37   		2.32    		8.48   
+ 1024    1000          1.91           9.12         1.94     	       1.97        	0.39   		2.72    		9.12   
+ 2048    1000          2.47           9.62         2.50     	       2.54        	0.45   		3.11    		9.62   
+ 4096    1000          3.55           10.02        3.59     	       3.64        	0.44   		5.04    		10.02  
+ 8192    1000          4.61           11.73        4.66     	       4.73        	0.50   		7.63    		11.73  
+ 16384   1000          6.71           12.33        6.74     	       6.80        	0.42   		9.51    		12.33  
+ 32768   1000          10.80          17.16        10.84    	       10.93       	0.58   		15.37   		17.16  
+ 65536   1000          19.18          26.20        19.26    	       19.29       	0.29   		20.63   		26.20  
+ 131072  1000          35.70          40.59        35.75    	       35.78       	0.21   		36.66   		40.59  
+ 262144  1000          68.72          75.13        68.78    	       68.87       	0.52   		72.44   		75.13  
+ 524288  1000          134.78         140.08       134.85   	       134.88      	0.19   		135.79  		140.08 
+ 1048576 1000          266.90         275.00       268.14   	       267.97      	0.46   		269.29  		275.00 
+ 2097152 1000          531.74         538.48       532.40   	       532.45      	0.40   		534.67  		538.48 
+ 4194304 1000          1060.80        1064.47      1060.87  	       1060.93     	0.29   		1063.08 		1064.47
+ 8388608 1000          2117.51        2126.14      2117.57  	       2117.70     	0.60   		2120.65 		2126.14
+---------------------------------------------------------------------------------------
+
+=== ib_write_bw -a -F (client side) ===
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF		Device         : mlx5_0
+ Number of qps   : 1		Transport type : IB
+ Connection type : RC		Using SRQ      : OFF
+ TX depth        : 128
+ CQ Moderation   : 100
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 0[B]
+ rdma_cm QPs	 : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ local address: LID 0x08 QPN 0x198502 PSN 0xb8905c RKey 0x027f2a VAddr 0x002ab6c0ced000
+ remote address: LID 0x06 QPN 0x5c11a PSN 0x77f38b RKey 0x13d1da VAddr 0x002b65456f2000
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[MB/sec]    BW average[MB/sec]   MsgRate[Mpps]
+ 2          5000             8.89               7.99   		   4.188015
+ 4          5000             29.17              28.71  		   7.525157
+ 8          5000             67.25              64.35  		   8.434689
+ 16         5000             134.51             124.72 		   8.173498
+ 32         5000             270.10             268.97 		   8.813547
+ 64         5000             540.18             537.70 		   8.809629
+ 128        5000             1076.04            1048.10		   8.586004
+ 256        5000             2143.49            2133.06		   8.736995
+ 512        5000             3491.01            3413.32		   6.990487
+ 1024       5000             3639.20            3631.08		   3.718225
+ 2048       5000             3727.82            3724.99		   1.907196
+ 4096       5000             3762.03            3757.55		   0.961933
+ 8192       5000             3772.09            3770.88		   0.482673
+ 16384      5000             3779.57            3779.21		   0.241869
+ 32768      5000             3782.49            3782.35		   0.121035
+ 65536      5000             3783.91            3783.89		   0.060542
+ 131072     5000             3784.07            3783.81		   0.030271
+ 262144     5000             3784.64            3784.63		   0.015139
+ 524288     5000             3784.74            3784.74		   0.007569
+ 1048576    5000             3784.93            3784.91		   0.003785
+ 2097152    5000             3785.00            3784.99		   0.001892
+ 4194304    5000             3784.91            3784.90		   0.000946
+ 8388608    5000             3784.91            3784.88		   0.000473
+---------------------------------------------------------------------------------------
+
+Finished.

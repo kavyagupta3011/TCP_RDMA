@@ -1,0 +1,34 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=01:00:00
+#PBS -S /bin/bash
+
+# Round 2, after the per-round correctness check was added to every program.
+#   A. negative test: LL with the flag wait removed must report FAILED
+#   B. Baseline_Barrier and LL again at 32 B / 32 KB / 32 MB (second run of round 1)
+#   C. Sentinel, Twoshot_LL, Twoshot_Sentinel at the same three sizes
+#   D. Bidirectional_DoubleBuffering (2 ranks) at the same three sizes
+#   E. Atomic_Probe and LL128_Atomic (the adapter is mlx5, not the mlx4 assumed before)
+
+cd /home/student4/IMT2023016
+echo "################ A: negative test ################"
+PROGRAMS=LL_NoWait_NegativeTest SIZES=8:8192 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+
+echo ""
+echo "################ B+C: 32 B and 32 KB ################"
+PROGRAMS=Baseline_Barrier:LL:Sentinel:Twoshot_LL:Twoshot_Sentinel SIZES=8:8192 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+
+echo ""
+echo "################ B+C: 32 MB ################"
+PROGRAMS=Baseline_Barrier:LL:Sentinel:Twoshot_LL:Twoshot_Sentinel SIZES=8388608 ITERS=100 TIMEOUT=600 bash run_all.pbs
+
+echo ""
+echo "################ D: Bidirectional (2 ranks, 8 chunks per pass) ################"
+PROGRAMS=Bidirectional_DoubleBuffering SIZES=8:8192 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+PROGRAMS=Bidirectional_DoubleBuffering SIZES=8388608 ITERS=100 TIMEOUT=600 bash run_all.pbs
+
+echo ""
+echo "################ E: atomics ################"
+PROGRAMS=Atomic_Probe:LL128_Atomic SIZES=8 ITERS=1000 TIMEOUT=60 bash run_all.pbs

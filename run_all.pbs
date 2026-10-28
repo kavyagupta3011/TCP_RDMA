@@ -17,6 +17,12 @@
 #   TIMEOUT   per-run limit in seconds (default 90; a hang shows as exit=124)
 #   BASE      folder holding the program folders
 #             (default /home/student4/IMT2023016/paper_algorithms_v2)
+#   RANKS     use only the first RANKS allocated nodes (default: all of them)
+#
+# NOTE: on this cluster ~/bin/qsub is a wrapper that takes only the script name, so
+# "qsub -v ..." does NOT work. Set the variables in a small job script instead, e.g.
+#   PROGRAMS=LL SIZES=8:8192 ITERS=1000 bash run_all.pbs
+# (see the job scripts in jobs/).
 #
 # Number of ranks = number of nodes requested (-l nodes=N:ppn=1, default 3).
 # Bidirectional_DoubleBuffering and Atomic_Probe always use exactly 2 ranks.
@@ -41,6 +47,8 @@ rm -f "$LOGDIR"/*.log
 
 N=$(sort -u "$PBS_NODEFILE" | wc -l)
 echo "Allocated node count: $N"
+# RANKS (optional) uses only the first RANKS nodes, e.g. a 2-rank run inside a 3-node job.
+if [ -n "${RANKS:-}" ] && [ "$RANKS" -lt "$N" ]; then N=$RANKS; echo "Using the first $N nodes (RANKS=$RANKS)"; fi
 echo "PROGRAMS=$PROGRAMS"
 echo "SIZES=$SIZES floats   ITERS=$ITERS   TIMEOUT=${TIMEOUT}s"
 
@@ -71,6 +79,7 @@ bin_for() {
         LL128_Atomic)                    bin=ll128_atomic_allreduce_rdma;    ranks=$N; extra="" ;;
         Bidirectional_DoubleBuffering)   bin=bidir_doublebuffer_rdma;        ranks=2;  extra="8" ;;  # 8 chunks/iter
         Atomic_Probe)                    bin=atomic_probe;                   ranks=2;  extra="" ;;
+        LL_NoWait_NegativeTest)          bin=ll_allreduce_rdma;              ranks=$N; extra="" ;;  # LL with the flag wait removed: must FAIL
         *) return 1 ;;
     esac
 }

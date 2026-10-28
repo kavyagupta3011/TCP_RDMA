@@ -1,0 +1,48 @@
+#!/bin/bash
+#PBS -N rdma_floor
+#PBS -l nodes=2:ppn=1
+#PBS -q workq
+#PBS -l walltime=00:15:00
+#PBS -S /bin/bash
+
+# Measures the network floor between two compute nodes with the perftest tools:
+# ib_write_lat (one RDMA write, one way latency) and ib_write_bw (bandwidth).
+# These are the numbers the AllReduce results are compared against.
+#
+#   qsub run_floor.pbs          (run from ~/IMT2023016)
+
+set -u
+LOGDIR="/home/student4/IMT2023016/floor_logs"
+mkdir -p "$LOGDIR"
+rm -f "$LOGDIR"/*.log
+
+# Node info: device name and port state (ibv_devinfo), and the CPU load, since
+# leftover processes on a node would disturb the timings.
+for i in 0 1; do
+    pbsdsh -n "$i" -- bash -c "{ hostname; hostname -I; ibv_devinfo; echo '--- load'; uptime; ps -eo user,pid,etime,pcpu,comm --sort=-pcpu | head -8; } > '$LOGDIR/info_${i}.log' 2>&1" &
+done
+wait
+SERVER_IP=$(grep -oE '10\.1\.2\.[0-9]+' "$LOGDIR/info_1.log" | head -1)
+DEV=$(grep -m1 -oE 'hca_id:[[:space:]]*[^[:space:]]+' "$LOGDIR/info_0.log" | awk '{print $2}')
+echo "=== node info ==="
+cat "$LOGDIR/info_0.log"; echo "---"; cat "$LOGDIR/info_1.log"
+echo "server (node 1) ib0 address: $SERVER_IP   device: $DEV"
+
+# Each test: server on node 1, client on node 0 (started 2 s later).
+run_pair() {
+    local tool="$1" port="$2"; shift 2
+    pbsdsh -n 1 -- bash -c "timeout 120 $tool -d $DEV -p $port $* > '$LOGDIR/${tool}_server.log' 2>&1" &
+    sleep 2
+    pbsdsh -n 0 -- bash -c "timeout 120 $tool -d $DEV -p $port $* $SERVER_IP > '$LOGDIR/${tool}_client.log' 2>&1" &
+    wait
+    echo ""
+    echo "=== $tool $* (client side) ==="
+    cat "$LOGDIR/${tool}_client.log"
+}
+
+# -a: all sizes 2 B .. 8 MB.  -F: do not stop if the CPU frequency governor is not "performance".
+run_pair ib_write_lat 18515 -a -F
+run_pair ib_write_bw  18516 -a -F
+
+echo ""
+echo "Finished."

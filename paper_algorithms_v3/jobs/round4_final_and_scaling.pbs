@@ -1,0 +1,20 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=01:00:00
+#PBS -S /bin/bash
+
+# Round 4, with the final code (Baseline_Barrier and LL use the blocked sum and -O3).
+#   A. Baseline_Barrier and LL, 3 ranks, 32 B / 32 KB / 32 MB (final numbers, and a later repeat)
+#   B. Baseline_Barrier and LL, 2 ranks (compute02, compute03), same sizes (does latency grow with ranks?)
+
+cd /home/student4/IMT2023016
+echo "################ A: 3 ranks, final code ################"
+PROGRAMS=Baseline_Barrier:LL SIZES=8:8192 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+PROGRAMS=Baseline_Barrier:LL SIZES=8388608 ITERS=100 TIMEOUT=600 bash run_all.pbs
+
+echo ""
+echo "################ B: 2 ranks, final code ################"
+RANKS=2 PROGRAMS=Baseline_Barrier:LL SIZES=8:8192 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+RANKS=2 PROGRAMS=Baseline_Barrier:LL SIZES=8388608 ITERS=100 TIMEOUT=600 bash run_all.pbs

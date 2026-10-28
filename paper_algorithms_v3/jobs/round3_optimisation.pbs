@@ -1,0 +1,24 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=01:00:00
+#PBS -S /bin/bash
+
+# Round 3: effect of -O3 and of the blocked (vectorisable) sum, on Baseline_Barrier and LL.
+# Four builds of the same programs live in opt_test/<variant>/ (see jobs/README in results):
+#   old_O2  per-element sum, -O2   (the code used in rounds 1 and 2)
+#   old_O3  per-element sum, -O3
+#   blk_O2  blocked sum,     -O2
+#   blk_O3  blocked sum,     -O3
+# All four run in this one job on the same nodes, so they can be compared directly.
+
+cd /home/student4/IMT2023016
+for v in old_O2 old_O3 blk_O2 blk_O3; do
+    echo ""
+    echo "################ variant $v: 32 B and 32 KB ################"
+    BASE=/home/student4/IMT2023016/opt_test/$v PROGRAMS=Baseline_Barrier:LL SIZES=8:8192 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+    echo ""
+    echo "################ variant $v: 32 MB ################"
+    BASE=/home/student4/IMT2023016/opt_test/$v PROGRAMS=Baseline_Barrier:LL SIZES=8388608 ITERS=100 TIMEOUT=600 bash run_all.pbs
+done

@@ -1,0 +1,18 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=00:10:00
+#PBS -S /bin/bash
+
+# Quick check (about a minute): Baseline_Barrier and LL at 32 B, 3 ranks on compute02-04.
+# Copy this file and change the line below to run something else:
+#   PROGRAMS  Baseline_Barrier LL Sentinel Twoshot_LL Twoshot_Sentinel
+#             Bidirectional_DoubleBuffering LL128_Atomic Atomic_Probe  (colon-separated)
+#   SIZES     in floats: 8 = 32 B, 8192 = 32 KB, 8388608 = 32 MB      (colon-separated)
+#   ITERS     timed rounds (use 100 for 32 MB)
+#   TIMEOUT   seconds per run (use 600 for 32 MB)
+#   RANKS=2   in front of the line to use only compute02 and compute03
+
+cd /home/student4/IMT2023016
+PROGRAMS=Baseline_Barrier:LL SIZES=8 ITERS=1000 TIMEOUT=120 bash run_all.pbs

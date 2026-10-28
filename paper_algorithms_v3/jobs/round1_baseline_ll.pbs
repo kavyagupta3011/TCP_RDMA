@@ -1,0 +1,26 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=01:00:00
+#PBS -S /bin/bash
+
+# Round 1 (professor's comment: sizes 32 B / 32 KB / 32 MB, start simple).
+# Runs on compute02-04 only: compute00/01 have leftover processes at 100% CPU.
+# Our qsub wrapper does not pass -v, so the settings are set here and the
+# steps run one after another inside this single job.
+#   1. network floor (ib_write_lat / ib_write_bw) between the first two nodes
+#   2. Baseline_Barrier and LL at 32 B (8 floats) and 32 KB (8192 floats), 1000 iters
+#   3. Baseline_Barrier and LL at 32 MB (8388608 floats), 100 iters
+
+cd /home/student4/IMT2023016
+echo "################ STEP 1: network floor ################"
+bash run_floor.pbs
+
+echo ""
+echo "################ STEP 2: 32 B and 32 KB ################"
+PROGRAMS=Baseline_Barrier:LL SIZES=8:8192 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+
+echo ""
+echo "################ STEP 3: 32 MB ################"
+PROGRAMS=Baseline_Barrier:LL SIZES=8388608 ITERS=100 TIMEOUT=600 bash run_all.pbs
