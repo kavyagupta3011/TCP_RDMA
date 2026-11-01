@@ -1,0 +1,13 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=00:10:00
+#PBS -S /bin/bash
+
+# Quick check of the ring baseline (about a minute): 3 ranks, 32 B and 32 KB, 100 rounds.
+# Build first: cd ~/IMT2023016/baselines/Ring_AllReduce && make -B
+
+R=/home/student4/IMT2023016/baselines
+cd "$R"
+CODE="$R" TMPLOG="$R/tmp" PROGRAMS=Ring_AllReduce SIZES=8:8192 ITERS=100 TIMEOUT=60 bash "$R/run_ring.sh"

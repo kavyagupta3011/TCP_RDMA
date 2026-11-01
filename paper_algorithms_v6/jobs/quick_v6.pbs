@@ -1,0 +1,19 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=00:15:00
+#PBS -S /bin/bash
+
+# Short first test of v6 only (20 rounds, a few sizes). Run this before the full comparison:
+# if a program hangs or fails it shows up here in a minute or two instead of in the long job.
+#   qsub quick_v6.pbs      then read ~/IMT2023016/results_v6/quick.txt
+
+ROOT=/home/student4/IMT2023016
+OUT=$ROOT/results_v6
+{
+    echo "# v6 quick test, job ${PBS_JOBID:-?}, $(date '+%Y-%m-%d %H:%M:%S')"
+    CODE=$ROOT/paper_algorithms_v6 TMPLOG=$OUT/tmp/quick PROGRAMS=Twoshot_LL:Twoshot_Sentinel \
+        SIZES=8:8192:65536:262144:8388608 ITERS=20 TIMEOUT=60 bash "$ROOT/paper_algorithms_v6/jobs/run_allreduce.sh"
+} > "$OUT/quick.txt" 2>&1
+echo done

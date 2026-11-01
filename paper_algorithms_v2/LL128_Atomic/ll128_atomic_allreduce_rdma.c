@@ -1,40 +1,16 @@
 // ll128_atomic_allreduce_rdma.c
 //
-// Two-shot, N-NODE AllReduce-sum using a genuine hardware atomic as the
-// completion signal -- the actual core idea of the paper's LL128 Atomic
-// algorithm (Section IV.B.4, Fig. 5) -- over real InfiniBand RDMA verbs.
-// See ../README.md for why this version exists, and Twoshot_LL/'s header
-// for the N-ary ReduceScatter+AllGather chunk-ownership convention this
-// file also uses.
+// Two-shot AllReduce (sum) for N nodes where an RDMA atomic add is the completion signal
+// (Section IV.B.4 of the paper, arXiv:2607.16100). In the paper this runs on GPUs, where the
+// atomic add sums the floating-point data itself. InfiniBand atomics only work on 64-bit
+// integers, so here the data goes by an ordinary RDMA WRITE, the atomic is only the counter that
+// says the data has arrived, and the CPU does the sum. The chunk layout is the same as in
+// Twoshot_LL/.
 //
-// IMPORTANT hardware-honesty note, please read before comparing this to the
-// original CUDA LL128_Atomic implementation or to the paper itself: on
-// NVLink, the paper's design gets TWO things from one hardware primitive --
-// (a) multiple GPUs' FLOATING-POINT data contributions are summed directly
-// by the memory fabric via a cache-line atomic add, AND (b) a per-group
-// counter, packed into the same atomic-add stream, signals "everyone has
-// contributed" once it reaches N, with no separate flag. InfiniBand's
-// native RDMA atomic (IBV_WR_ATOMIC_FETCH_AND_ADD) is a real, genuine
-// hardware atomic -- but it operates on a 64-bit SIGNED INTEGER, not a
-// float; there is no remote floating-point atomic add on InfiniBand. So
-// this version keeps (b) -- the atomic really does serve as the completion
-// signal, with no separate flag write anywhere -- but cannot keep (a): the
-// actual floating-point DATA still arrives via an ordinary RDMA WRITE into
-// a per-sender slot (exactly like Twoshot_LL/Sentinel) and is summed
-// locally by the CPU once the atomic counter says it's ready.
-//
-// Because each counter is incremented by a real atomic add rather than
-// overwritten by a plain WRITE, it's naturally monotonic across the whole
-// program's lifetime (never needs resetting) -- exactly like LL's epoch
-// flag, just advanced by hardware ADD instead of overwritten by hand. In
-// the N-node generalization, EVERY one of my N-1 peers issues one atomic
-// +1 to my counter each round (one per phase), so my counter's value after
-// round `it` (counting the correctness round as it=-1) is
-// (it+2)*(num_ranks-1) -- that is this file's `expect` value below. At N=2
-// this collapses to exactly the original formula (expect = it+2).
-// WRITE(data) is posted before ATOMIC_FETCH_AND_ADD(counter, +1) on the
-// same QP each round/peer, so RC ordering guarantees the data has landed by
-// the time the counter reflects it.
+// Every peer adds 1 to each of my counters (one counter per phase) once per round, so a counter
+// only grows and never needs resetting. After round `it` (the correctness round is it = -1) it
+// equals (it+2)*(num_ranks-1); that is `expect` in the code. The data WRITE is posted before the
+// atomic on the same QP, so RC ordering guarantees the data is there when the counter shows it.
 //
 // Usage:
 //   ./ll128_atomic_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
@@ -43,21 +19,20 @@
 //   node B: ./ll128_atomic_allreduce_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 //   node C: ./ll128_atomic_allreduce_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
+// Changes since the first version (paper_algorithms/):
+// * Writes are posted non-blocking (rdma_post_write*), small ones inline, to
 //   every peer back to back; completions are collected once, after the
 //   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
+//   The data write is posted unsignaled and only the trailing flag/atomic is
 //   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
+// * Fix: receive buffers are now double-buffered by round parity. Before, one
 //   buffer was reused every round, so a fast peer's next-round write could
 //   overwrite data still being read (invisible to verification because every
 //   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
+// * Fix: flag/counter waits use `<` instead of `!=` -- they only ever increase,
 //   and `!=` would spin forever if a peer is already one round ahead.
 // * Per-iteration timing (min/median/p99/max), a start barrier and an end
 //   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
 
 #include "../common/rdma_common.h"
 

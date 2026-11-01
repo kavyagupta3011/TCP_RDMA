@@ -1,21 +1,11 @@
 // baseline_barrier_rdma.c
 //
-// A "conventional" one-shot, N-NODE AllReduce-sum that DOES use an explicit
-// synchronization barrier between the push and the reduce step -- the
-// design the paper's Section III-B examines and then eliminates (Fig. 3),
-// over real InfiniBand RDMA verbs. See ../README.md and the original CUDA
-// project's Baseline_Barrier/README.md for the full rationale.
-//
-// Mechanism: every rank writes its full input directly into every other
-// rank's per-peer scratch buffer (plain RDMA WRITE, no flag, no polling for
-// arrival at all). Correctness then depends ENTIRELY on rdma_barrier() -- a
-// genuine two-sided SEND + RECV round trip -- confirming, on EVERY peer
-// connection, that both sides' writes have landed before either side reads
-// its scratch buffers. With N ranks that's N-1 sequential barrier round
-// trips per round (one per connection) -- deliberately not parallelized,
-// since the whole point of this file is to be the "before" number the
-// other six programs' barrier-free "after" numbers get compared against;
-// making the barrier itself faster would undercut that comparison.
+// One-shot AllReduce (sum) for N nodes, the version that uses a barrier. Every rank writes its
+// whole input vector into a receive buffer on every other rank with an RDMA WRITE and waits for
+// that write to complete. The ranks then run a barrier (an ordinary two-sided SEND/RECV with
+// every peer), which is how each rank knows the data from the others has arrived. After the
+// barrier every rank sums its own vector with the N-1 received ones.
+// The other programs do the same exchange without the barrier (LL, Sentinel).
 //
 // Usage:
 //   ./baseline_barrier_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
@@ -24,21 +14,20 @@
 //   node B: ./baseline_barrier_rdma 1 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 //   node C: ./baseline_barrier_rdma 2 3 20000 10.1.2.1 10.1.2.2 10.1.2.3
 
-// ---- v3 optimization notes (see results/ for measurements) ----------------
-// * Writes are posted non-blocking (rdma_post_write*), small ones INLINE, to
+// Changes since the first version (paper_algorithms/):
+// * Writes are posted non-blocking (rdma_post_write*), small ones inline, to
 //   every peer back to back; completions are collected once, after the
 //   reduce, instead of one blocking NIC round trip per peer in sequence.
-//   The DATA write is posted unsignaled and only the trailing flag/atomic is
+//   The data write is posted unsignaled and only the trailing flag/atomic is
 //   signaled (RC completes in order, so that one completion covers both).
-// * FIX: receive buffers are now DOUBLE-BUFFERED by round parity. Before, one
+// * Fix: receive buffers are now double-buffered by round parity. Before, one
 //   buffer was reused every round, so a fast peer's next-round write could
 //   overwrite data still being read (invisible to verification because every
 //   round used identical input).
-// * FIX: flag/counter waits use `<` instead of `!=` -- they only ever increase,
+// * Fix: flag/counter waits use `<` instead of `!=` -- they only ever increase,
 //   and `!=` would spin forever if a peer is already one round ahead.
 // * Per-iteration timing (min/median/p99/max), a start barrier and an end
 //   barrier, as in Sentinel/ and Twoshot_Sentinel/.
-// ---------------------------------------------------------------------------
 
 #include "../common/rdma_common.h"
 
@@ -138,7 +127,7 @@ int main(int argc, char** argv) {
         for (int j = 0; j < n; ++j)
             if (j != my_rank) rdma_wait_write(conns[j]);
         // ---- THE BARRIER ----
-        // A genuine two-sided round trip PER PEER CONNECTION: only once
+        // A two-sided round trip per peer connection: only once
         // every one of these returns is any side allowed to assume every
         // peer's write has landed. (This is the cost the barrier-free
         // algorithms exist to remove, so it is deliberately left as-is.)

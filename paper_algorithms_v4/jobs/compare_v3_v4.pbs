@@ -1,0 +1,47 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=01:00:00
+#PBS -S /bin/bash
+
+# v3 against v4 on the same three nodes. Only the four programs v4 touches are run (LL is
+# included as a control: its code is the same in both, so any difference there is noise).
+# Every experiment is run twice, v3 first and v4 first, so a slow or fast moment on the
+# machines does not favour one version.
+#
+# Build first with `bash build.sh` in ~/IMT2023016/paper_algorithms_v4, then submit from the
+# jobs folder:  qsub compare_v3_v4.pbs
+# Logs go to ~/IMT2023016/results_v4/logs; `python3 compare.py` makes the table.
+
+ROOT=/home/student4/IMT2023016
+OUT=$ROOT/results_v4
+RUN=$ROOT/paper_algorithms_v4/jobs/run_allreduce.sh
+PROGS=LL:Sentinel:Twoshot_LL:Twoshot_Sentinel
+
+run() {  # run <experiment> <order> <version> <sizes> <iters> <timeout>
+    local exp=$1 order=$2 v=$3 sizes=$4 iters=$5 to=$6
+    local code=$ROOT/paper_algorithms_$v
+    {
+        echo "# version: $v"
+        echo "# experiment: $exp, order $order"
+        echo "# job: ${PBS_JOBID:-?}   started: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "# nodes: $(sort -u "$PBS_NODEFILE" | tr '\n' ' ')"
+        echo ""
+        CODE=$code TMPLOG=$OUT/tmp/$v PROGRAMS=$PROGS SIZES=$sizes ITERS=$iters TIMEOUT=$to bash "$RUN"
+    } > "$OUT/logs/${exp}_order${order}_${v}.txt" 2>&1
+    echo "$(date '+%H:%M:%S') done: ${exp}_order${order}_${v}"
+}
+
+# experiment name, sizes in floats, rounds, timeout
+for spec in "small:8:8192:1000:120" "256KB:65536:100:120" "32MB:8388608:100:300"; do
+    IFS=: read -r exp rest <<< "$spec"
+    iters=$(echo "$rest" | awk -F: '{print $(NF-1)}')
+    to=$(echo "$rest" | awk -F: '{print $NF}')
+    sizes=$(echo "$rest" | awk -F: '{s=$1; for(i=2;i<=NF-2;i++) s=s":"$i; print s}')
+    run "$exp" 1 v3 "$sizes" "$iters" "$to"
+    run "$exp" 1 v4 "$sizes" "$iters" "$to"
+    run "$exp" 2 v4 "$sizes" "$iters" "$to"
+    run "$exp" 2 v3 "$sizes" "$iters" "$to"
+done
+echo "all done"

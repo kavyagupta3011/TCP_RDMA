@@ -1,43 +1,15 @@
 // ll_allreduce_rdma.c
 //
-// One-shot, N-NODE AllReduce-sum using the LL (low-latency) synchronization
-// idea, Section IV.B.1 of "Every us Matters: Achieving Near Speed-of-Light
-// Latency in GPU Collectives" (arXiv:2607.16100), reimplemented over REAL
-// InfiniBand RDMA verbs instead of CUDA/NVLink -- see ../README.md for why
-// this version exists (no GPU on this cluster).
+// One-shot AllReduce (sum) for N nodes using the LL idea (Section IV.B.1 of the paper,
+// arXiv:2607.16100), written with InfiniBand RDMA verbs. Every rank writes its whole input
+// vector to every other rank, then writes a small epoch flag on the same QP. RC delivers writes
+// in order, so once the flag shows the current epoch the data is already there and the receiver
+// can sum. No barrier is needed. The epoch grows every round, so the flag never needs resetting.
 //
-// The paper's LL trick is: pack a completion flag INTO the same atomic
-// transaction as the data, so a 16-byte aligned store either lands whole or
-// not at all as far as any reader is concerned -- no separate barrier
-// needed. That exact trick is GPU/NVLink-specific. InfiniBand has no
-// equivalent "atomic 16-byte store" primitive -- but Reliable Connection
-// (RC) QPs guarantee that messages posted on the same QP are APPLIED TO
-// REMOTE MEMORY IN THE ORDER THEY WERE POSTED. So instead of one atomic
-// flag+data store, this version posts TWO ordinary RDMA WRITEs, back to
-// back, on the same QP: (1) WRITE the full data vector into the peer's
-// data_recv region, (2) WRITE a single 8-byte epoch value into the peer's
-// flag_recv region. Because #2 is posted after #1 on the same QP, RC
-// ordering guarantees #1 has already landed by the time the receiver
-// observes #2 -- one busy-polled 8-byte word per peer, no explicit
-// synchronization primitive.
-//
-// N-node generalization: this is now a full mesh push. Every rank writes
-// its ENTIRE input vector directly to EVERY other rank (N-1 sends, N-1
-// receives), then sums its own input with all N-1 received vectors. No
-// reduction tree, no partitioning -- this mirrors exactly what the original
-// CUDA one-shot version does across GPUs, now across processes/nodes.
-//
-// Important RDMA detail this generalization surfaces: every peer connection
-// has its OWN protection domain (see rdma_common.c's build_qp -- each
-// RdmaConn gets its own ibv_alloc_pd call). A buffer used as the LOCAL side
-// of a WRITE on connection j must be registered against connection j's PD
-// specifically. So unlike the 2-node version (one peer, one registration),
-// this file keeps a PER-PEER registered copy of `input` (input_reg[j]) and
-// of the epoch value (epoch_send[j]) -- same bytes, N-1 separate
-// registrations, one per outbound connection.
-//
-// Because the flag is an EPOCH that increments every round (not a fixed
-// value), no reset is ever needed between repeated AllReduce calls.
+// The paper sends the flag together with the data in one 16-byte store, which InfiniBand cannot
+// do, so the flag is a separate write that relies on the ordering.
+// Each connection has its own protection domain, so every outgoing buffer is registered
+// separately for each peer.
 //
 // Usage:
 //   ./ll_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]

@@ -47,7 +47,7 @@ for v in v1 v2 v3; do
         run $v 1_3ranks_32B_64B_128B_32KB "3 ranks, all algorithms, 32 B / 64 B / 128 B / 32 KB, 1000 rounds"
 done
 
-# 2. 3 ranks, 256 KB (the size of the first results sent to the professor)
+# 2. 3 ranks, 256 KB (the size of the first results)
 for v in v1 v2 v3; do
     PROGRAMS=$ALL SIZES=65536 ITERS=100 TIMEOUT=120 \
         run $v 2_3ranks_256KB "3 ranks, all algorithms, 256 KB, 100 rounds"

@@ -54,7 +54,7 @@ separate. LL128_Atomic is skipped (no RDMA atomics on this card).
    the number of nodes.
 
 
-What goes to the professor:
+For the report:
   - the table from 2 (medians), with the size written on every column
   - the floor from 1, so the numbers have something to be compared with
   - one line saying the old 256 KiB numbers are replaced

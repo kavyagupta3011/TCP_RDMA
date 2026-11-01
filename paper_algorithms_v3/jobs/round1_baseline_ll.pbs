@@ -5,7 +5,7 @@
 #PBS -l walltime=01:00:00
 #PBS -S /bin/bash
 
-# Round 1 (professor's comment: sizes 32 B / 32 KB / 32 MB, start simple).
+# Round 1 (sizes 32 B / 32 KB / 32 MB, start simple).
 # Runs on compute02-04 only: compute00/01 have leftover processes at 100% CPU.
 # Our qsub wrapper does not pass -v, so the settings are set here and the
 # steps run one after another inside this single job.

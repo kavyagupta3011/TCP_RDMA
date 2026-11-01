@@ -1,21 +1,9 @@
 // twoshot_sentinel_allreduce_rdma.c
 //
-// Two-shot, N-NODE AllReduce-sum using Sentinel synchronization for both
-// phases, Table I row "Two-shot (Sentinel)", over real InfiniBand RDMA
-// verbs. Combines Twoshot_LL/'s N-ary two-phase (ReduceScatter + AllGather)
-// structure with Sentinel/'s double-buffering-across-iterations trick for
-// avoiding a per-round reset barrier -- read both of those files' headers
-// first; this one doesn't repeat their reasoning.
-//
-// Each (phase, peer) pair gets its own PAIR of sentinel-initialized scratch
-// buffers (reset once, at startup, right after that connection is
-// established), ping-ponged by round parity -- same "implicit permission"
-// argument Sentinel/ gives for why that's safe with no per-round reset,
-// just applied independently per peer per phase here.
-//
-// See Twoshot_LL/'s header for the exact chunk-ownership convention (rank c
-// owns chunk c) and the peer-buffer naming (peer_rs[j]/peer_ag[j] mean "the
-// address I write MY contribution for rank j into").
+// Two-shot AllReduce (sum) for N nodes with sentinel values in both phases. Same ReduceScatter +
+// AllGather structure as Twoshot_LL (rank c owns chunk c), but arrival is detected with the
+// sentinel value instead of a flag. Each (phase, peer) pair has two sentinel-filled buffers used
+// alternately by round parity, as in Sentinel/.
 //
 // Usage:
 //   ./twoshot_sentinel_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]

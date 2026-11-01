@@ -1,41 +1,12 @@
 // twoshot_ll_allreduce_rdma.c
 //
-// Two-shot, N-NODE AllReduce-sum using LL-style synchronization for both
-// phases, Table I row "Two-shot (LL)" of "Every us Matters: Achieving Near
-// Speed-of-Light Latency in GPU Collectives" (arXiv:2607.16100), over real
-// InfiniBand RDMA verbs. See ../README.md for why this version exists, and
-// LL/ll_allreduce_rdma.c for the RC-ordering trick (data WRITE, then a
-// trailing flag WRITE, same QP) both phases here reuse, and for the
-// per-peer-registration detail (every connection has its own protection
-// domain).
-//
-// General N ReduceScatter + AllGather: the M-element vector splits into N
-// chunks, one per rank -- rank c "owns" chunk c (index range
-// [c*chunk, (c+1)*chunk)).
-//
-//   Phase 1 (ReduceScatter): every rank r sends, to EVERY other rank c, its
-//   own local slice of chunk c. Once rank c has received chunk c's slice
-//   from all N-1 other ranks, it sums those with its OWN slice of chunk c
-//   and ends up as the sole holder of chunk c, fully reduced.
-//
-//   Phase 2 (AllGather): every rank c broadcasts its now-complete chunk c
-//   to all N-1 other ranks. Once every rank has received every chunk (its
-//   own, computed locally in Phase 1, plus N-1 received in Phase 2), every
-//   rank holds the full result.
-//
-// This is the real N-ary form Table I's "two-shot" row describes -- at N=2
-// it specializes to exactly the earlier pairwise version (see
-// ../README.md's "one-shot vs. two-shot at N=2" note); the traffic
-// reduction two-shot is usually chosen for only shows up once N>2, which is
-// exactly what this generalization now demonstrates.
-//
-// Per-peer buffer naming: for peer j, `rs_recv[j]`/`rs_flag[j]` is MY
-// receive slot for peer j's Phase-1 contribution to MY chunk; `ag_recv[j]`/
-// `ag_flag[j]` is MY receive slot for peer j's completed chunk in Phase 2.
-// Each connection's rdma_exchange_regions call swaps these addresses
-// symmetrically, so `peer_rs_data[j]` ends up meaning "the address I write
-// MY Phase-1 contribution to rank j's chunk into" -- i.e. rank j's
-// rs_recv[my_rank].
+// Two-shot AllReduce (sum) for N nodes with LL-style flags in both phases, written with
+// InfiniBand RDMA verbs. The vector is split into N chunks and rank c owns chunk c.
+//   Phase 1 (ReduceScatter): every rank sends its slice of chunk c to rank c, and rank c
+//   sums the N slices of its chunk.
+//   Phase 2 (AllGather): every rank sends its finished chunk to all other ranks.
+// Each data write is followed by an epoch flag write on the same QP (see LL/). The vector
+// length is rounded up to a multiple of N.
 //
 // Usage:
 //   ./twoshot_ll_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]

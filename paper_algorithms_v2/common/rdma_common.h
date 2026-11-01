@@ -1,38 +1,13 @@
 // rdma_common.h
 //
-// Shared RDMA CM + verbs connection setup for paper_algorithms_v2/.
+// Shared RDMA CM + verbs connection setup used by all the programs in this folder.
 //
-// Why this version exists: paper_algorithms/ (the original delivery) is
-// written for GPUs on the same NVLink domain, using CUDA peer-to-peer
-// memory as the stand-in for the paper's "symmetric heap." Diagnostics on
-// 172.16.201.12 (check_node.sh, run 2026-09-30) confirmed that cluster has
-// NO GPU/accelerator resources on any of its 8 compute nodes -- only CPUs
-// and a real Mellanox ConnectX-3 InfiniBand fabric (mlx4_0). This version
-// reimplements the same four/five synchronization mechanisms using REAL
-// RDMA verbs (ibverbs + librdmacm) one-sided operations across two of that
-// cluster's compute nodes, so it actually runs on hardware you have access
-// to right now, using the InfiniBand fabric you've already benchmarked with
-// in rdma_bench/.
-//
-// Design: every algorithm here is a single program launched once PER NODE,
-// N times total for an N-rank run, each copy told its own rank index and
-// the full list of every rank's IPoIB address (see rdma_mesh_connect()
-// below) -- no MPI, no job launcher, just plain command-line arguments,
-// per an explicit "no MPI at all" requirement. Every rank ends up with an
-// RdmaConn to every OTHER rank (a full mesh), and the algorithms loop over
-// that mesh exactly like the original CUDA version loops over GPUs.
-//
-// (Bidirectional_DoubleBuffering/ is the one exception, matching the
-// original CUDA version's own scope decision: the paper's own Fig. 4 is a
-// 2-rank teaching example, so that program still only uses ranks 0 and 1
-// out of however many are launched -- see its README.)
-//
-// Bootstrap pattern (standard for RDMA applications): establish the
-// connection via RDMA CM, then swap each side's buffer addr+rkey+size using
-// one ordinary two-sided SEND/RECV message pair (rdma_exchange_regions
-// below). Only after that does either side ever issue a one-sided RDMA
-// WRITE or ATOMIC operation -- exactly mirroring how NCCL's device-side API
-// registers symmetric memory once, then uses it for many one-sided ops.
+// Each program is started once per node with its own rank and the list of every rank's
+// IPoIB address (no MPI). Every rank connects to every other rank (full mesh), then the
+// buffer addresses and keys are swapped with an ordinary SEND/RECV pair
+// (rdma_exchange_regions). After that the algorithm data moves only with one-sided RDMA
+// WRITE / ATOMIC operations. Bidirectional_DoubleBuffering is the exception: it only uses
+// ranks 0 and 1.
 
 #ifndef RDMA_COMMON_H
 #define RDMA_COMMON_H
@@ -148,15 +123,9 @@ void* rdma_reg_buffer(RdmaConn* conn, size_t size, struct ibv_mr** mr_out);
 // means the same logical buffer on both ends.
 void rdma_exchange_regions(RdmaConn* conn, RegionInfo* local, int n, RegionInfo* remote_out);
 
-// Posts a SIGNALED RDMA WRITE (local_addr/lkey -> remote_addr/rkey, `len`
-// bytes) and blocks until ITS OWN completion is polled -- i.e. until the
-// local NIC confirms the write was issued, not until the remote side has
-// "seen" it in any application sense (this project's algorithms detect
-// that by polling the written memory itself, exactly like the CUDA version
-// polls peer-written GPU memory). Signaled + immediately polled, matching
-// the fix already established in rdma_bench/client.c and server.c earlier
-// in this project (unsignaled sends without polling exhausted queue
-// resources there -- ENOMEM).
+// Posts a signaled RDMA WRITE (local_addr/lkey -> remote_addr/rkey, `len` bytes) and blocks
+// until its own completion is polled, i.e. until the local NIC has finished the write. The
+// receiver detects arrival by polling the written memory.
 void rdma_write(RdmaConn* conn, void* local_addr, uint32_t lkey, size_t len,
                  uint64_t remote_addr, uint32_t rkey);
 
@@ -192,19 +161,14 @@ void rdma_wait_atomic(RdmaConn* conn);
 // <iters> iters (<ranks> ranks): X us" plus min/median/p99/max. Sorts `lat`.
 void rdma_print_stats(const char* name, double* lat, int iters, int ranks);
 
-// Native InfiniBand atomic fetch-and-add (IBV_WR_ATOMIC_FETCH_AND_ADD) on
-// the PEER's 8-byte-aligned remote memory. Real RDMA atomics are 64-bit
-// SIGNED INTEGER only -- there is no floating-point remote atomic add on
-// InfiniBand (unlike NVLink's cache-line atomics, which is what the
-// original CUDA LL128_Atomic implementation relies on for float data). See
-// LL128_Atomic/README.md in this folder for exactly how that constraint
-// shapes this version's design. *old_val_out receives the pre-add value.
+// Native InfiniBand atomic fetch-and-add (IBV_WR_ATOMIC_FETCH_AND_ADD) on the peer's
+// 8-byte-aligned memory. RDMA atomics work on 64-bit integers only (there is no
+// floating-point atomic add). *old_val_out receives the value before the add.
 void rdma_atomic_fetch_add(RdmaConn* conn, uint64_t remote_addr, uint32_t rkey,
                             int64_t add_val, int64_t* old_val_out);
 
-// One SEND + one matching RECV in each direction -- a genuine two-sided
-// round trip, used ONLY by Baseline_Barrier/ as the explicit "conventional"
-// synchronization point every other algorithm here is built to avoid.
+// One SEND + one RECV in each direction (a two-sided round trip). Used only by
+// Baseline_Barrier as its explicit barrier.
 void rdma_barrier(RdmaConn* conn);
 
 double now_us(void);

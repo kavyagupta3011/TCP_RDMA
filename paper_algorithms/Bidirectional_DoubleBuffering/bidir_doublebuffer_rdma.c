@@ -1,32 +1,16 @@
 // bidir_doublebuffer_rdma.c
 //
-// Chunked pairwise reduction using Bidirectional Communication & Double
-// Buffering, Section IV.B.3 and Fig. 4 of "Every us Matters: Achieving Near
-// Speed-of-Light Latency in GPU Collectives" (arXiv:2607.16100), over real
-// InfiniBand RDMA verbs. See ../README.md for why this version exists, and
-// LL/ll_allreduce_rdma.c for the RC-ordering trick (data WRITE, then a
-// trailing flag WRITE, same QP) this file reuses per chunk.
+// Chunked exchange between two ranks with bidirectional communication and double buffering
+// (Section IV.B.3 and Fig. 4 of the paper, arXiv:2607.16100), written with InfiniBand RDMA
+// verbs. It works with exactly 2 ranks, as in the paper's figure. It takes the same arguments
+// as the other programs but needs num_ranks to be 2.
 //
-// This is the ONE algorithm in this project that stays pairwise even in the
-// N-node generalization -- exactly like the original CUDA version, which
-// already scoped this one to 2 GPUs on purpose, because the paper's own
-// Fig. 4 is inherently a 2-rank teaching example (bidirectional traffic
-// between exactly two participants is the whole point of the picture). So
-// this program still only ever uses ranks 0 and 1: it accepts the SAME
-// command-line shape as every other program in this project (for a
-// consistent launch story across the whole set), but requires num_ranks to
-// be exactly 2. If your professor wants an N>2 demonstration, use one of
-// the other six programs -- they all generalize to N.
-//
-// Mechanism, per chunk: push this chunk into the peer's current buffer
-// (data WRITE + trailing flag WRITE, ordered on the same QP), wait for the
-// peer's chunk in this rank's own current buffer (poll the local flag),
-// reduce, advance to the next buffer. Two buffers (0 and 1) are ping-ponged
-// by chunk parity; because each side only reuses buffer 0 again two chunks
-// later, and by then it has necessarily already both sent its own next
-// chunk and consumed the peer's previous one, no barrier or reset is ever
-// needed between chunks -- "each receive serves as an implicit permission
-// for the next send" (paper, Section IV.B.3).
+// Per chunk: write the chunk into the peer's current buffer (data WRITE, then a flag WRITE on
+// the same QP, see LL/), wait for the peer's chunk in my own current buffer (poll the local
+// flag), add, and move on to the other buffer. The two buffers are used alternately by chunk
+// parity. A rank only reuses buffer 0 two chunks later, and by then it has already sent its own
+// next chunk and used the peer's previous one, so no barrier or reset is needed between chunks.
+// Each receive acts as permission for the next send.
 //
 // Usage:
 //   ./bidir_doublebuffer_rdma <my_rank> 2 <base_port> <ip0> <ip1> [numFloats] [numChunks] [iters]

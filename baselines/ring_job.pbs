@@ -1,0 +1,24 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=01:00:00
+#PBS -S /bin/bash
+
+# Standard ring AllReduce on the same nodes and the same sizes as the runs in
+# run_updated/run_everything.pbs. Build it first on the login node:
+#   cd ~/IMT2023016/baselines/Ring_AllReduce && make -B
+# Submit from ~/IMT2023016/baselines:  qsub ring_job.pbs
+
+R=/home/student4/IMT2023016/baselines
+cd "$R"
+
+echo "################ 3 ranks ################"
+CODE="$R" TMPLOG="$R/tmp" PROGRAMS=Ring_AllReduce SIZES=8:16:32:8192 ITERS=1000 TIMEOUT=60  bash "$R/run_ring.sh"
+CODE="$R" TMPLOG="$R/tmp" PROGRAMS=Ring_AllReduce SIZES=65536        ITERS=100  TIMEOUT=120 bash "$R/run_ring.sh"
+CODE="$R" TMPLOG="$R/tmp" PROGRAMS=Ring_AllReduce SIZES=8388608      ITERS=100  TIMEOUT=300 bash "$R/run_ring.sh"
+
+echo ""
+echo "################ 2 ranks ################"
+CODE="$R" TMPLOG="$R/tmp" RANKS=2 PROGRAMS=Ring_AllReduce SIZES=8:8192 ITERS=1000 TIMEOUT=60  bash "$R/run_ring.sh"
+CODE="$R" TMPLOG="$R/tmp" RANKS=2 PROGRAMS=Ring_AllReduce SIZES=8388608 ITERS=100 TIMEOUT=300 bash "$R/run_ring.sh"

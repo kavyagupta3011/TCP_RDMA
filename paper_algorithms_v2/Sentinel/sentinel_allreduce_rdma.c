@@ -1,43 +1,15 @@
 // sentinel_allreduce_rdma.c
 //
-// One-shot, N-NODE AllReduce-sum using the Sentinel synchronization idea,
-// Section IV.B.2 of "Every us Matters: Achieving Near Speed-of-Light
-// Latency in GPU Collectives" (arXiv:2607.16100), over real InfiniBand RDMA
-// verbs. See ../README.md for why this version exists, and
-// LL/ll_allreduce_rdma.c for the RC-ordering background and the
-// per-peer-registration detail (every connection has its own protection
-// domain) this file also relies on.
+// One-shot AllReduce (sum) for N nodes using sentinel values (Section IV.B.2 of the paper,
+// arXiv:2607.16100), written with InfiniBand RDMA verbs. Every rank writes its input vector,
+// without a flag, into a receive buffer on every other rank. That buffer was filled beforehand
+// with a reserved bit pattern (a NaN), and the receiver waits until each element stops matching
+// it. One RDMA WRITE per peer per round.
 //
-// The idea: write real data directly (full width, no flag) into a buffer
-// pre-filled with a reserved sentinel bit pattern; the receiver polls for
-// the value to stop matching the sentinel. Single RDMA WRITE per peer per
-// round (no trailing flag write).
-//
-// FIX (v3): the original version reset the buffers only once at setup, so
-// after rounds 0 and 1 both buffers held stale real data and the spin-wait
-// never waited -- latencies were not measuring a real exchange. Each slot is
-// now reset to the sentinel right after it is consumed (safe: the peer cannot
-// write round i+2 into this buffer until it has received MY round i+1 data,
-// which I only post after finishing round i, including the reset).
-//
-// The catch, exactly as the paper describes: the receiving buffer must be
-// reset to the sentinel value before it can be reused, and doing that
-// safely across REPEATED rounds between SEPARATE PROCESSES (no shared host
-// to sequence resets against sends) needs real coordination -- unless you
-// use the paper's own answer to that problem: double buffering (Section
-// IV.B.3), applied here across ALLREDUCE CALLS rather than across chunks
-// within one call. Every peer-pair gets TWO scratch regions, reset to the
-// sentinel exactly ONCE (right after that connection is established, which
-// is itself already a natural one-time synchronization point). Round i
-// writes into buffer (i % 2); because both sides execute rounds in the same
-// strict sequential order, by the time round i+2 could possibly arrive at a
-// buffer, its round-i contents have provably already been consumed. No
-// per-round reset, no per-round barrier, after the one-time initial reset.
-//
-// N-node generalization: same full-mesh push as LL/ -- every rank writes
-// its entire input to every other rank's per-peer sentinel buffer, and sums
-// its own input with all N-1 received vectors once every slot has stopped
-// reading as the sentinel.
+// Every peer gets two receive buffers used alternately by round. A slot is set back to the
+// sentinel right after it has been read. This is safe because the peer cannot write round i+2
+// into a buffer until it has received my round i+1 data, which I only send after finishing
+// round i, including the reset.
 //
 // Usage:
 //   ./sentinel_allreduce_rdma <my_rank> <num_ranks> <base_port> <ip0> ... <ip(N-1)> [numFloats] [iters]
