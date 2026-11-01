@@ -1,0 +1,21 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=1:host=compute02+1:ncpus=1:host=compute03+1:ncpus=1:host=compute04
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -l walltime=01:00:00
+#PBS -S /bin/bash
+
+# Small sizes, both versions, in one job on the same nodes:
+#   32 B = 8 floats, 64 B = 16 floats, 128 B = 32 floats; 1000 iterations.
+# Version 3 code: ~/IMT2023016/paper_algorithms_v2 (the cluster folder holds the v3 code).
+# Version 2 code: ~/IMT2023016/v2_code/paper_algorithms_v2 (the 2026-10-05 code).
+
+P=Baseline_Barrier:LL:Sentinel:Twoshot_LL:Twoshot_Sentinel:Bidirectional_DoubleBuffering
+cd /home/student4/IMT2023016
+
+echo "################ VERSION 3 ################"
+PROGRAMS=$P SIZES=8:16:32 ITERS=1000 TIMEOUT=120 bash run_all.pbs
+
+echo ""
+echo "################ VERSION 2 ################"
+BASE=/home/student4/IMT2023016/v2_code/paper_algorithms_v2 PROGRAMS=$P SIZES=8:16:32 ITERS=1000 TIMEOUT=120 bash run_all.pbs

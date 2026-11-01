@@ -1,0 +1,144 @@
+# results_updated log
+# version: v2
+# experiment: 3 ranks, all algorithms, 32 MB, 100 rounds
+# job: 30203.master.local   started: 2026-11-01 16:56:23
+# nodes: compute02.local compute03.local compute04.local 
+
+CODE=/home/student4/IMT2023016/run_updated/code/v2
+PROGRAMS=Baseline_Barrier:LL:Sentinel:Twoshot_LL:Twoshot_Sentinel:LL128_Atomic:Bidirectional_DoubleBuffering
+SIZES=8388608 floats   ITERS=100   TIMEOUT=300s   RANKS=3
+rank 0 -> host compute02.local -> ib0 10.1.2.12
+rank 1 -> host compute03.local -> ib0 10.1.2.13
+rank 2 -> host compute04.local -> ib0 10.1.2.14
+
+################ message = 8388608 floats (33554432 bytes), 100 iters ################
+
+=== Baseline_Barrier (3 ranks, 8388608 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8388608 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 100 iters (3 ranks): 46976.199 us
+  min=43843.741 us  median=46836.405 us  p99=51764.502 us  max=54917.325 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8388608 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 100 iters (3 ranks): 46969.580 us
+  min=43836.182 us  median=46762.598 us  p99=51109.709 us  max=51777.229 us
+exit=0
+--- Baseline_Barrier rank 2 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8388608 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 100 iters (3 ranks): 46921.469 us
+  min=41276.405 us  median=46746.025 us  p99=54397.841 us  max=54474.798 us
+exit=0
+
+=== LL (3 ranks, 8388608 floats) ===
+--- LL rank 0 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 100 iters (3 ranks): 43923.621 us
+  min=43030.542 us  median=43894.937 us  p99=47102.056 us  max=48065.284 us
+exit=0
+--- LL rank 1 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 100 iters (3 ranks): 43909.405 us
+  min=42915.342 us  median=43898.810 us  p99=46855.831 us  max=47578.446 us
+exit=0
+--- LL rank 2 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 100 iters (3 ranks): 43882.358 us
+  min=39488.739 us  median=43755.663 us  p99=49621.688 us  max=50638.836 us
+exit=0
+
+=== Sentinel (3 ranks, 8388608 floats) ===
+--- Sentinel rank 0 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 100 iters (3 ranks): 38724.213 us
+  min=38121.449 us  median=38398.815 us  p99=42988.501 us  max=43704.859 us
+exit=0
+--- Sentinel rank 1 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 100 iters (3 ranks): 38729.383 us
+  min=37918.856 us  median=38427.483 us  p99=43346.938 us  max=43442.505 us
+exit=0
+--- Sentinel rank 2 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 100 iters (3 ranks): 38676.510 us
+  min=36577.485 us  median=38395.998 us  p99=44609.662 us  max=44618.925 us
+exit=0
+
+=== Twoshot_LL (3 ranks, 8388608 floats) ===
+--- Twoshot_LL rank 0 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 100 iters (3 ranks): 31769.151 us
+  min=31145.363 us  median=31584.624 us  p99=34235.279 us  max=34383.961 us
+exit=0
+--- Twoshot_LL rank 1 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 100 iters (3 ranks): 31780.193 us
+  min=30851.251 us  median=31657.122 us  p99=34118.846 us  max=34672.816 us
+exit=0
+--- Twoshot_LL rank 2 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 100 iters (3 ranks): 31741.219 us
+  min=30686.087 us  median=31656.663 us  p99=34112.264 us  max=35679.551 us
+exit=0
+
+=== Twoshot_Sentinel (3 ranks, 8388608 floats) ===
+--- Twoshot_Sentinel rank 0 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 100 iters (3 ranks): 38250.032 us
+  min=37971.571 us  median=38135.937 us  p99=40223.350 us  max=41357.234 us
+exit=0
+--- Twoshot_Sentinel rank 1 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 100 iters (3 ranks): 38244.816 us
+  min=37884.320 us  median=38136.830 us  p99=40882.501 us  max=40918.696 us
+exit=0
+--- Twoshot_Sentinel rank 2 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 100 iters (3 ranks): 38226.574 us
+  min=35373.264 us  median=38117.512 us  p99=42758.469 us  max=44667.335 us
+exit=0
+
+=== LL128_Atomic (3 ranks, 8388608 floats) ===
+--- LL128_Atomic rank 0 ---
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=0/3
+SKIPPED: this adapter reports atomic_cap=NONE (no RDMA atomics); LL128_Atomic cannot run here. See results/ and Atomic_Probe/.
+exit=2
+--- LL128_Atomic rank 1 ---
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=1/3
+SKIPPED: this adapter reports atomic_cap=NONE (no RDMA atomics); LL128_Atomic cannot run here. See results/ and Atomic_Probe/.
+exit=2
+--- LL128_Atomic rank 2 ---
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=8388609 floats, 3 chunks of 2796203, rank=2/3
+SKIPPED: this adapter reports atomic_cap=NONE (no RDMA atomics); LL128_Atomic cannot run here. See results/ and Atomic_Probe/.
+exit=2
+
+=== Bidirectional_DoubleBuffering (2 ranks, 8388608 floats) ===
+--- Bidirectional_DoubleBuffering rank 0 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=8388608 floats, 8 chunks of 1048576 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered (8 chunks/iter) AllReduce latency over 100 iters (2 ranks): 19434.112 us
+  min=19118.411 us  median=19443.114 us  p99=19647.259 us  max=20251.529 us
+exit=0
+--- Bidirectional_DoubleBuffering rank 1 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=8388608 floats, 8 chunks of 1048576 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered (8 chunks/iter) AllReduce latency over 100 iters (2 ranks): 19438.119 us
+  min=19194.265 us  median=19432.846 us  p99=19892.199 us  max=20457.786 us
+exit=0
+
+Finished.

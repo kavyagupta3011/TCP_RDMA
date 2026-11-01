@@ -1,20 +1,13 @@
-# Builds the two-shot LL AllReduce demo.
-ARCH ?= native
-NVCC ?= nvcc
-NVCCFLAGS = -O3 -std=c++17 -arch=$(ARCH)
+TARGET = twoshot_ll_allreduce_rdma
+SRC = twoshot_ll_allreduce_rdma.c ../common/rdma_common.c
+CFLAGS = -O2 -Wall -Wextra -std=c11
+LIBS = -lrdmacm -libverbs -lm
 
-TARGET = twoshot_ll_allreduce
-SRC = twoshot_ll_allreduce.cu
-
-.PHONY: all run clean
+.PHONY: all clean
 all: $(TARGET)
 
-$(TARGET): $(SRC) ../common/gpu_common.cuh
-	$(NVCC) $(NVCCFLAGS) -o $(TARGET) $(SRC)
-
-# Usage: make run [NGPUS=4] [NFLOATS=65536] [ITERS=100]
-run: $(TARGET)
-	./$(TARGET) $(NGPUS) $(NFLOATS) $(ITERS)
+$(TARGET): $(SRC) ../common/rdma_common.h
+	gcc $(CFLAGS) -o $(TARGET) $(SRC) $(LIBS)
 
 clean:
 	rm -f $(TARGET)

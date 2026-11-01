@@ -1,0 +1,170 @@
+# results_updated log
+# version: v2
+# experiment: 2 ranks, Baseline and LL, 32 B / 64 B / 128 B / 32 KB (1000 rounds) and 32 MB (100 rounds)
+# job: 30203.master.local   started: 2026-11-01 17:00:42
+# nodes: compute02.local compute03.local compute04.local 
+
+CODE=/home/student4/IMT2023016/run_updated/code/v2
+PROGRAMS=Baseline_Barrier:LL
+SIZES=8:16:32:8192 floats   ITERS=1000   TIMEOUT=60s   RANKS=2
+rank 0 -> host compute02.local -> ib0 10.1.2.12
+rank 1 -> host compute03.local -> ib0 10.1.2.13
+
+################ message = 8 floats (32 bytes), 1000 iters ################
+
+=== Baseline_Barrier (2 ranks, 8 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 4.165 us
+  min=3.674 us  median=4.429 us  p99=4.898 us  max=30.974 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 4.166 us
+  min=2.327 us  median=4.441 us  p99=4.885 us  max=31.098 us
+exit=0
+
+=== LL (2 ranks, 8 floats) ===
+--- LL rank 0 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 1.876 us
+  min=1.738 us  median=1.814 us  p99=2.058 us  max=16.999 us
+exit=0
+--- LL rank 1 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 1.882 us
+  min=1.721 us  median=1.811 us  p99=2.110 us  max=17.342 us
+exit=0
+
+################ message = 16 floats (64 bytes), 1000 iters ################
+
+=== Baseline_Barrier (2 ranks, 16 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=16 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 4.296 us
+  min=2.785 us  median=4.436 us  p99=4.979 us  max=20.331 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=16 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 4.301 us
+  min=2.449 us  median=4.442 us  p99=5.117 us  max=19.646 us
+exit=0
+
+=== LL (2 ranks, 16 floats) ===
+--- LL rank 0 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=16 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 1.824 us
+  min=1.724 us  median=1.778 us  p99=1.947 us  max=12.330 us
+exit=0
+--- LL rank 1 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=16 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 1.817 us
+  min=1.725 us  median=1.775 us  p99=1.937 us  max=12.357 us
+exit=0
+
+################ message = 32 floats (128 bytes), 1000 iters ################
+
+=== Baseline_Barrier (2 ranks, 32 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=32 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 4.313 us
+  min=2.849 us  median=4.521 us  p99=4.720 us  max=12.123 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=32 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 4.314 us
+  min=3.199 us  median=4.541 us  p99=4.787 us  max=11.239 us
+exit=0
+
+=== LL (2 ranks, 32 floats) ===
+--- LL rank 0 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=32 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 1.871 us
+  min=1.726 us  median=1.788 us  p99=2.148 us  max=17.847 us
+exit=0
+--- LL rank 1 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=32 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 1.878 us
+  min=1.718 us  median=1.793 us  p99=2.178 us  max=19.144 us
+exit=0
+
+################ message = 8192 floats (32768 bytes), 1000 iters ################
+
+=== Baseline_Barrier (2 ranks, 8192 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8192 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 35.061 us
+  min=30.252 us  median=34.793 us  p99=44.226 us  max=55.760 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8192 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (2 ranks): 35.077 us
+  min=31.666 us  median=34.884 us  p99=47.035 us  max=49.719 us
+exit=0
+
+=== LL (2 ranks, 8192 floats) ===
+--- LL rank 0 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 30.390 us
+  min=17.306 us  median=33.008 us  p99=43.062 us  max=53.893 us
+exit=0
+--- LL rank 1 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (2 ranks): 30.378 us
+  min=19.108 us  median=32.705 us  p99=42.897 us  max=53.709 us
+exit=0
+
+Finished.
+CODE=/home/student4/IMT2023016/run_updated/code/v2
+PROGRAMS=Baseline_Barrier:LL
+SIZES=8388608 floats   ITERS=100   TIMEOUT=300s   RANKS=2
+rank 0 -> host compute02.local -> ib0 10.1.2.12
+rank 1 -> host compute03.local -> ib0 10.1.2.13
+
+################ message = 8388608 floats (33554432 bytes), 100 iters ################
+
+=== Baseline_Barrier (2 ranks, 8388608 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8388608 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 100 iters (2 ranks): 33341.206 us
+  min=27228.717 us  median=33267.383 us  p99=38230.494 us  max=40526.458 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8388608 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 100 iters (2 ranks): 33355.663 us
+  min=29300.406 us  median=33076.827 us  p99=37404.175 us  max=37601.195 us
+exit=0
+
+=== LL (2 ranks, 8388608 floats) ===
+--- LL rank 0 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 100 iters (2 ranks): 28882.892 us
+  min=19986.903 us  median=29224.113 us  p99=37338.529 us  max=38851.353 us
+exit=0
+--- LL rank 1 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8388608 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 100 iters (2 ranks): 28933.701 us
+  min=20572.065 us  median=29163.947 us  p99=37421.017 us  max=38162.527 us
+exit=0
+
+Finished.
