@@ -1,0 +1,439 @@
+# final_results log
+# version: v1
+# experiment: 3 ranks, 32 B / 64 B / 128 B / 32 KB, 1000 rounds
+# job: 30220.master.local   started: 2026-11-02 12:36:00
+# nodes: compute02.local compute03.local compute04.local 
+
+CODE=/home/student4/IMT2023016/run_updated/code/v1
+PROGRAMS=Baseline_Barrier:LL:Sentinel:Twoshot_LL:Twoshot_Sentinel:LL128_Atomic:Bidirectional_DoubleBuffering
+SIZES=8:16:32:8192 floats   ITERS=1000   TIMEOUT=60s   RANKS=3
+rank 0 -> host compute02.local -> ib0 10.1.2.12
+rank 1 -> host compute03.local -> ib0 10.1.2.13
+rank 2 -> host compute04.local -> ib0 10.1.2.14
+
+################ message = 8 floats (32 bytes), 1000 iters ################
+
+=== Baseline_Barrier (3 ranks, 8 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 1526.483 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 1526.478 us
+exit=0
+--- Baseline_Barrier rank 2 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 1526.478 us
+exit=0
+
+=== LL (3 ranks, 8 floats) ===
+--- LL rank 0 ---
+exit=124
+--- LL rank 1 ---
+exit=124
+--- LL rank 2 ---
+exit=124
+
+=== Sentinel (3 ranks, 8 floats) ===
+--- Sentinel rank 0 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.025 us
+exit=0
+--- Sentinel rank 1 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.043 us
+exit=0
+--- Sentinel rank 2 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.055 us
+exit=0
+
+=== Twoshot_LL (3 ranks, 8 floats) ===
+--- Twoshot_LL rank 0 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.895 us
+exit=0
+--- Twoshot_LL rank 1 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.895 us
+exit=0
+--- Twoshot_LL rank 2 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.891 us
+exit=0
+
+=== Twoshot_Sentinel (3 ranks, 8 floats) ===
+--- Twoshot_Sentinel rank 0 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 8.012 us
+exit=0
+--- Twoshot_Sentinel rank 1 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 7.976 us
+exit=0
+--- Twoshot_Sentinel rank 2 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 8.013 us
+exit=0
+
+=== LL128_Atomic (3 ranks, 8 floats) ===
+--- LL128_Atomic rank 0 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=0/3
+exit=1
+--- LL128_Atomic rank 1 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=1/3
+exit=1
+--- LL128_Atomic rank 2 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=9 floats, 3 chunks of 3, rank=2/3
+exit=1
+
+=== Bidirectional_DoubleBuffering (2 ranks, 8 floats) ===
+--- Bidirectional_DoubleBuffering rank 0 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=8 floats, 8 chunks of 1 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 31.511 us
+exit=0
+--- Bidirectional_DoubleBuffering rank 1 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=8 floats, 8 chunks of 1 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 31.513 us
+exit=0
+
+################ message = 16 floats (64 bytes), 1000 iters ################
+
+=== Baseline_Barrier (3 ranks, 16 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=16 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 1259.701 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=16 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 1259.697 us
+exit=0
+--- Baseline_Barrier rank 2 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=16 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 1259.695 us
+exit=0
+
+=== LL (3 ranks, 16 floats) ===
+--- LL rank 0 ---
+exit=124
+--- LL rank 1 ---
+exit=124
+--- LL rank 2 ---
+exit=124
+
+=== Sentinel (3 ranks, 16 floats) ===
+--- Sentinel rank 0 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=16 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.078 us
+exit=0
+--- Sentinel rank 1 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=16 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.114 us
+exit=0
+--- Sentinel rank 2 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=16 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.079 us
+exit=0
+
+=== Twoshot_LL (3 ranks, 16 floats) ===
+--- Twoshot_LL rank 0 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.886 us
+exit=0
+--- Twoshot_LL rank 1 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.886 us
+exit=0
+--- Twoshot_LL rank 2 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.885 us
+exit=0
+
+=== Twoshot_Sentinel (3 ranks, 16 floats) ===
+--- Twoshot_Sentinel rank 0 ---
+RDMA work completion error: transport retry counter exceeded (wr_id=4126, expected=4126)
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=0/3
+Correctness check vs. CPU reference: PASSED
+exit=1
+--- Twoshot_Sentinel rank 1 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 8.045 us
+exit=0
+--- Twoshot_Sentinel rank 2 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 7.536 us
+exit=0
+
+=== LL128_Atomic (3 ranks, 16 floats) ===
+--- LL128_Atomic rank 0 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=0/3
+exit=1
+--- LL128_Atomic rank 1 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=1/3
+exit=1
+--- LL128_Atomic rank 2 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=18 floats, 3 chunks of 6, rank=2/3
+exit=1
+
+=== Bidirectional_DoubleBuffering (2 ranks, 16 floats) ===
+--- Bidirectional_DoubleBuffering rank 0 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=16 floats, 8 chunks of 2 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 31.392 us
+exit=0
+--- Bidirectional_DoubleBuffering rank 1 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=16 floats, 8 chunks of 2 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 31.410 us
+exit=0
+
+################ message = 32 floats (128 bytes), 1000 iters ################
+
+=== Baseline_Barrier (3 ranks, 32 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=32 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 11.603 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=32 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 11.599 us
+exit=0
+--- Baseline_Barrier rank 2 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=32 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 11.599 us
+exit=0
+
+=== LL (3 ranks, 32 floats) ===
+--- LL rank 0 ---
+exit=124
+--- LL rank 1 ---
+exit=124
+--- LL rank 2 ---
+exit=124
+
+=== Sentinel (3 ranks, 32 floats) ===
+--- Sentinel rank 0 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=32 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.237 us
+exit=0
+--- Sentinel rank 1 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=32 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.264 us
+exit=0
+--- Sentinel rank 2 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=32 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 4.242 us
+exit=0
+
+=== Twoshot_LL (3 ranks, 32 floats) ===
+--- Twoshot_LL rank 0 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.956 us
+exit=0
+--- Twoshot_LL rank 1 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.956 us
+exit=0
+--- Twoshot_LL rank 2 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 15.954 us
+exit=0
+
+=== Twoshot_Sentinel (3 ranks, 32 floats) ===
+--- Twoshot_Sentinel rank 0 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 8.129 us
+exit=0
+--- Twoshot_Sentinel rank 1 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 8.081 us
+exit=0
+--- Twoshot_Sentinel rank 2 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 8.092 us
+exit=0
+
+=== LL128_Atomic (3 ranks, 32 floats) ===
+--- LL128_Atomic rank 0 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=0/3
+exit=1
+--- LL128_Atomic rank 1 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=1/3
+exit=1
+--- LL128_Atomic rank 2 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=33 floats, 3 chunks of 11, rank=2/3
+exit=1
+
+=== Bidirectional_DoubleBuffering (2 ranks, 32 floats) ===
+--- Bidirectional_DoubleBuffering rank 0 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=32 floats, 8 chunks of 4 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 31.563 us
+exit=0
+--- Bidirectional_DoubleBuffering rank 1 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=32 floats, 8 chunks of 4 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 31.562 us
+exit=0
+
+################ message = 8192 floats (32768 bytes), 1000 iters ################
+
+=== Baseline_Barrier (3 ranks, 8192 floats) ===
+--- Baseline_Barrier rank 0 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8192 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 74.401 us
+exit=0
+--- Baseline_Barrier rank 1 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8192 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 74.402 us
+exit=0
+--- Baseline_Barrier rank 2 ---
+Baseline (explicit RDMA barrier) one-shot AllReduce (N-node): M=8192 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average barrier-based one-shot AllReduce latency over 1000 iters (3 ranks): 74.413 us
+exit=0
+
+=== LL (3 ranks, 8192 floats) ===
+--- LL rank 0 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (3 ranks): 59.760 us
+exit=0
+--- LL rank 1 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (3 ranks): 59.744 us
+exit=0
+--- LL rank 2 ---
+LL one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot LL AllReduce latency over 1000 iters (3 ranks): 59.743 us
+exit=0
+
+=== Sentinel (3 ranks, 8192 floats) ===
+--- Sentinel rank 0 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 67.388 us
+exit=0
+--- Sentinel rank 1 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 67.350 us
+exit=0
+--- Sentinel rank 2 ---
+Sentinel one-shot AllReduce (RDMA verbs, N-node): M=8192 floats, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average one-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 67.366 us
+exit=0
+
+=== Twoshot_LL (3 ranks, 8192 floats) ===
+--- Twoshot_LL rank 0 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 50.835 us
+exit=0
+--- Twoshot_LL rank 1 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 50.842 us
+exit=0
+--- Twoshot_LL rank 2 ---
+Two-shot LL AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot LL AllReduce latency over 1000 iters (3 ranks): 50.842 us
+exit=0
+
+=== Twoshot_Sentinel (3 ranks, 8192 floats) ===
+--- Twoshot_Sentinel rank 0 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=0/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 49.210 us
+exit=0
+--- Twoshot_Sentinel rank 1 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=1/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 49.355 us
+exit=0
+--- Twoshot_Sentinel rank 2 ---
+Two-shot Sentinel AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=2/3
+Correctness check vs. CPU reference: PASSED
+Average two-shot Sentinel AllReduce latency over 1000 iters (3 ranks): 49.061 us
+exit=0
+
+=== LL128_Atomic (3 ranks, 8192 floats) ===
+--- LL128_Atomic rank 0 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=0/3
+exit=1
+--- LL128_Atomic rank 1 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=1/3
+exit=1
+--- LL128_Atomic rank 2 ---
+RDMA error: ibv_post_send (ATOMIC_FETCH_AND_ADD) failed -- does this HCA/link support RDMA atomics? (mlx4 does) (../common/rdma_common.c:328, errno=22 Invalid argument)
+Two-shot LL128 Atomic AllReduce (RDMA verbs, N-node): M=8193 floats, 3 chunks of 2731, rank=2/3
+exit=1
+
+=== Bidirectional_DoubleBuffering (2 ranks, 8192 floats) ===
+--- Bidirectional_DoubleBuffering rank 0 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=8192 floats, 8 chunks of 1024 floats, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 55.545 us
+exit=0
+--- Bidirectional_DoubleBuffering rank 1 ---
+Bidirectional Communication & Double Buffering (RDMA verbs, pairwise): M=8192 floats, 8 chunks of 1024 floats, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Average bidirectional double-buffered reduction latency over 1000 iters (8 chunks/iter): 55.545 us
+exit=0
+
+Finished.

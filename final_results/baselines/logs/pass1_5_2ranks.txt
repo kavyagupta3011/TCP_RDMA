@@ -1,0 +1,74 @@
+# final_results log
+# version: ring
+# experiment: 2 ranks, Baseline and LL (ring for the baselines), 32 B / 32 KB (1000 rounds) and 32 MB (100 rounds)
+# job: 30219.master.local   started: 2026-11-02 12:27:32
+# nodes: compute02.local compute03.local compute04.local 
+
+CODE=/home/student4/IMT2023016/baselines
+PROGRAMS=Ring_AllReduce
+SIZES=8:8192 floats   ITERS=1000   TIMEOUT=60s   RANKS=2
+rank 0 -> host compute02.local -> ib0 10.1.2.12
+rank 1 -> host compute03.local -> ib0 10.1.2.13
+
+################ message = 8 floats (32 bytes), 1000 iters ################
+
+=== Ring_AllReduce (2 ranks, 8 floats) ===
+--- Ring_AllReduce rank 0 ---
+Ring AllReduce, standard algorithm (RDMA send/recv, N-node): M=8 floats, 2 chunks of 4, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Correctness check, every timed round (first/last element): PASSED
+Average ring (reduce-scatter + allgather) AllReduce latency over 1000 iters (2 ranks): 4.636 us
+  min=3.422 us  median=4.501 us  p99=5.449 us  max=20.637 us
+exit=0
+--- Ring_AllReduce rank 1 ---
+Ring AllReduce, standard algorithm (RDMA send/recv, N-node): M=8 floats, 2 chunks of 4, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Correctness check, every timed round (first/last element): PASSED
+Average ring (reduce-scatter + allgather) AllReduce latency over 1000 iters (2 ranks): 4.637 us
+  min=4.146 us  median=4.508 us  p99=5.479 us  max=19.893 us
+exit=0
+
+################ message = 8192 floats (32768 bytes), 1000 iters ################
+
+=== Ring_AllReduce (2 ranks, 8192 floats) ===
+--- Ring_AllReduce rank 0 ---
+Ring AllReduce, standard algorithm (RDMA send/recv, N-node): M=8192 floats, 2 chunks of 4096, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Correctness check, every timed round (first/last element): PASSED
+Average ring (reduce-scatter + allgather) AllReduce latency over 1000 iters (2 ranks): 31.606 us
+  min=26.633 us  median=31.717 us  p99=32.682 us  max=42.349 us
+exit=0
+--- Ring_AllReduce rank 1 ---
+Ring AllReduce, standard algorithm (RDMA send/recv, N-node): M=8192 floats, 2 chunks of 4096, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Correctness check, every timed round (first/last element): PASSED
+Average ring (reduce-scatter + allgather) AllReduce latency over 1000 iters (2 ranks): 31.611 us
+  min=27.263 us  median=31.715 us  p99=32.823 us  max=41.721 us
+exit=0
+
+Finished.
+CODE=/home/student4/IMT2023016/baselines
+PROGRAMS=Ring_AllReduce
+SIZES=8388608 floats   ITERS=100   TIMEOUT=300s   RANKS=2
+rank 0 -> host compute02.local -> ib0 10.1.2.12
+rank 1 -> host compute03.local -> ib0 10.1.2.13
+
+################ message = 8388608 floats (33554432 bytes), 100 iters ################
+
+=== Ring_AllReduce (2 ranks, 8388608 floats) ===
+--- Ring_AllReduce rank 0 ---
+Ring AllReduce, standard algorithm (RDMA send/recv, N-node): M=8388608 floats, 2 chunks of 4194304, rank=0/2
+Correctness check vs. CPU reference: PASSED
+Correctness check, every timed round (first/last element): PASSED
+Average ring (reduce-scatter + allgather) AllReduce latency over 100 iters (2 ranks): 27492.278 us
+  min=24099.720 us  median=26067.917 us  p99=117349.230 us  max=134867.918 us
+exit=0
+--- Ring_AllReduce rank 1 ---
+Ring AllReduce, standard algorithm (RDMA send/recv, N-node): M=8388608 floats, 2 chunks of 4194304, rank=1/2
+Correctness check vs. CPU reference: PASSED
+Correctness check, every timed round (first/last element): PASSED
+Average ring (reduce-scatter + allgather) AllReduce latency over 100 iters (2 ranks): 27530.159 us
+  min=24108.437 us  median=26034.502 us  p99=48696.857 us  max=210794.958 us
+exit=0
+
+Finished.

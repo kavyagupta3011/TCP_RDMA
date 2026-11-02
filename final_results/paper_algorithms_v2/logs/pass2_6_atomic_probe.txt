@@ -1,0 +1,33 @@
+# final_results log
+# version: v2
+# experiment: Atomic_Probe: does the network card support RDMA atomics (needed by LL128)
+# job: 30220.master.local   started: 2026-11-02 12:47:20
+# nodes: compute02.local compute03.local compute04.local 
+
+CODE=/home/student4/IMT2023016/run_updated/code/v2
+PROGRAMS=Atomic_Probe
+SIZES=8 floats   ITERS=10   TIMEOUT=60s   RANKS=3
+rank 0 -> host compute02.local -> ib0 10.1.2.12
+rank 1 -> host compute03.local -> ib0 10.1.2.13
+rank 2 -> host compute04.local -> ib0 10.1.2.14
+
+################ message = 8 floats (32 bytes), 10 iters ################
+
+=== Atomic_Probe (2 ranks, 8 floats) ===
+--- Atomic_Probe rank 0 ---
+PROBE device atomic_cap=0 (0=NONE 1=HCA 2=GLOB) max_qp_rd_atom=16 max_qp_init_rd_atom=16
+PROBE QP state=3 (3=RTS) access_flags=0xe (0x8=REMOTE_ATOMIC) max_rd_atomic=1 max_dest_rd_atomic=1 max_inline=188 max_send_sge=12
+PROBE rank 0 -> peer 1, remote counter addr=2372dc0 rkey=637317
+PROBE 1 FETCH_AND_ADD, library result buf              post_send rc=22 (Invalid argument)
+PROBE 2 FETCH_AND_ADD, fresh 64B-aligned result buf    post_send rc=22 (Invalid argument)
+PROBE 3 CMP_AND_SWP                                    post_send rc=22 (Invalid argument)
+PROBE 4 FETCH_AND_ADD after unsignaled inline WRITE    post_send rc=22 (Invalid argument)
+PROBE remote counter should now equal the number of OK atomics above; reading it needs the peer (see its line)
+exit=0
+--- Atomic_Probe rank 1 ---
+PROBE device atomic_cap=0 (0=NONE 1=HCA 2=GLOB) max_qp_rd_atom=16 max_qp_init_rd_atom=16
+PROBE QP state=3 (3=RTS) access_flags=0xe (0x8=REMOTE_ATOMIC) max_rd_atomic=1 max_dest_rd_atomic=1 max_inline=188 max_send_sge=12
+PROBE rank 1 (counter host) final counter value = 0
+exit=0
+
+Finished.

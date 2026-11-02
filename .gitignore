@@ -16,3 +16,6 @@ mpi-bw
 
 # Slide deck - generated deliverable, not source, not tracked in git
 *.pptx
+# Python caches
+__pycache__/
+*.pyc

@@ -1,0 +1,160 @@
+# final_results log
+# version: none
+# experiment: network floor, ib_write_lat and ib_write_bw, first two nodes
+# job: 30219.master.local   started: 2026-11-02 12:16:01
+# nodes: compute02.local compute03.local compute04.local 
+
+=== node info ===
+compute02.local
+10.1.1.12 10.1.2.12 
+hca_id:	mlx5_0
+	transport:			InfiniBand (0)
+	fw_ver:				10.10.5020
+	node_guid:			a4bf:0103:004a:f8d2
+	sys_image_guid:			a4bf:0103:004a:f8d2
+	vendor_id:			0x02c9
+	vendor_part_id:			4113
+	hw_ver:				0x0
+	board_id:			INT0030100001
+	phys_port_cnt:			1
+	Device ports:
+		port:	1
+			state:			PORT_ACTIVE (4)
+			max_mtu:		4096 (5)
+			active_mtu:		4096 (5)
+			sm_lid:			1
+			port_lid:		9
+			port_lmc:		0x00
+			link_layer:		InfiniBand
+
+--- load
+ 12:16:01 up 86 days, 19:02,  0 users,  load average: 0.00, 0.01, 0.05
+USER        PID     ELAPSED %CPU COMMAND
+root       1453 86-19:02:05  0.1 puppet
+root          1 86-19:02:37  0.0 systemd
+root          2 86-19:02:37  0.0 kthreadd
+root          3 86-19:02:37  0.0 ksoftirqd/0
+root          5 86-19:02:37  0.0 kworker/0:0H
+root          8 86-19:02:37  0.0 migration/0
+root          9 86-19:02:37  0.0 rcu_bh
+---
+compute03.local
+10.1.1.13 10.1.2.13 
+hca_id:	mlx5_0
+	transport:			InfiniBand (0)
+	fw_ver:				10.10.5020
+	node_guid:			a4bf:0103:004a:f854
+	sys_image_guid:			a4bf:0103:004a:f854
+	vendor_id:			0x02c9
+	vendor_part_id:			4113
+	hw_ver:				0x0
+	board_id:			INT0030100001
+	phys_port_cnt:			1
+	Device ports:
+		port:	1
+			state:			PORT_ACTIVE (4)
+			max_mtu:		4096 (5)
+			active_mtu:		4096 (5)
+			sm_lid:			1
+			port_lid:		5
+			port_lmc:		0x00
+			link_layer:		InfiniBand
+
+--- load
+ 12:05:31 up 86 days, 19:05,  0 users,  load average: 0.00, 0.01, 0.05
+USER        PID     ELAPSED %CPU COMMAND
+root       1438 86-19:04:53  0.1 puppet
+root          1 86-19:05:26  0.0 systemd
+root          2 86-19:05:26  0.0 kthreadd
+root          3 86-19:05:26  0.0 ksoftirqd/0
+root          5 86-19:05:26  0.0 kworker/0:0H
+root          8 86-19:05:26  0.0 migration/0
+root          9 86-19:05:26  0.0 rcu_bh
+server (node 1) ib0 address: 10.1.2.13   device: mlx5_0
+
+=== ib_write_lat -a -F (client side) ===
+---------------------------------------------------------------------------------------
+                    RDMA_Write Latency Test
+ Dual-port       : OFF		Device         : mlx5_0
+ Number of qps   : 1		Transport type : IB
+ Connection type : RC		Using SRQ      : OFF
+ TX depth        : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 220[B]
+ rdma_cm QPs	 : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ local address: LID 0x09 QPN 0x581d8 PSN 0xeff31a RKey 0x133393 VAddr 0x002aac31750000
+ remote address: LID 0x05 QPN 0x1503 PSN 0xb16315 RKey 0x00dc05 VAddr 0x002af4f7fc1000
+---------------------------------------------------------------------------------------
+ #bytes #iterations    t_min[usec]    t_max[usec]  t_typical[usec]    t_avg[usec]    t_stdev[usec]   99% percentile[usec]   99.9% percentile[usec] 
+ 2       1000          0.97           5.27         1.01     	       1.01        	0.10   		1.10    		5.27   
+ 4       1000          0.98           2.86         1.01     	       1.01        	0.05   		1.03    		2.86   
+ 8       1000          0.99           2.60         1.01     	       1.01        	0.03   		1.03    		2.60   
+ 16      1000          0.99           3.20         1.01     	       1.02        	0.07   		1.04    		3.20   
+ 32      1000          1.05           3.13         1.07     	       1.08        	0.04   		1.10    		3.13   
+ 64      1000          1.06           3.94         1.08     	       1.08        	0.05   		1.11    		3.94   
+ 128     1000          1.11           2.29         1.14     	       1.14        	0.02   		1.18    		2.29   
+ 256     1000          1.56           3.71         1.59     	       1.59        	0.07   		1.61    		3.71   
+ 512     1000          1.72           3.76         1.74     	       1.75        	0.08   		1.77    		3.76   
+ 1024    1000          1.99           4.41         2.02     	       2.03        	0.07   		2.05    		4.41   
+ 2048    1000          2.54           3.75         2.58     	       2.60        	0.04   		2.71    		3.75   
+ 4096    1000          3.64           4.93         3.68     	       3.69        	0.06   		3.84    		4.93   
+ 8192    1000          4.69           5.54         4.73     	       4.74        	0.03   		4.86    		5.54   
+ 16384   1000          6.72           8.65         6.82     	       6.83        	0.06   		6.96    		8.65   
+ 32768   1000          10.90          11.15        10.95    	       10.96       	0.05   		11.13   		11.15  
+ 65536   1000          19.25          20.17        19.29    	       19.33       	0.07   		19.48   		20.17  
+ 131072  1000          35.72          39.64        35.77    	       35.78       	0.07   		35.95   		39.64  
+ 262144  1000          68.69          69.46        68.74    	       68.74       	0.04   		68.90   		69.46  
+ 524288  1000          134.58         135.51       134.62   	       134.64      	0.06   		134.79  		135.51 
+ 1048576 1000          266.41         268.36       267.60   	       267.41      	0.35   		267.88  		268.36 
+ 2097152 1000          530.54         531.62       531.17   	       531.19      	0.14   		531.52  		531.62 
+ 4194304 1000          1058.42        1062.15      1058.49  	       1058.54     	0.16   		1058.92 		1062.15
+ 8388608 1000          2117.66        2121.79      2117.87  	       2117.91     	0.26   		2119.51 		2121.79
+---------------------------------------------------------------------------------------
+
+=== ib_write_bw -a -F (client side) ===
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF		Device         : mlx5_0
+ Number of qps   : 1		Transport type : IB
+ Connection type : RC		Using SRQ      : OFF
+ TX depth        : 128
+ CQ Moderation   : 100
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 0[B]
+ rdma_cm QPs	 : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ local address: LID 0x09 QPN 0x581d9 PSN 0x43c947 RKey 0x125df7 VAddr 0x002b1ac9b5d000
+ remote address: LID 0x05 QPN 0x1504 PSN 0xaf17a4 RKey 0x00ccd8 VAddr 0x002afdbcdbf000
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[MB/sec]    BW average[MB/sec]   MsgRate[Mpps]
+ 2          5000             10.81              10.54  		   5.527033
+ 4          5000             21.74              21.55  		   5.648731
+ 8          5000             43.48              43.04  		   5.641256
+ 16         5000             86.74              86.11  		   5.643352
+ 32         5000             174.38             173.89 		   5.698173
+ 64         5000             343.41             333.40 		   5.462400
+ 128        5000             693.94             683.59 		   5.600005
+ 256        5000             1380.69            1368.84		   5.606773
+ 512        5000             2768.61            2733.82		   5.598865
+ 1024       5000             3653.81            3649.01		   3.736591
+ 2048       5000             3736.27            3733.21		   1.911405
+ 4096       5000             3775.81            3772.29		   0.965707
+ 8192       5000             3784.96            3784.94		   0.484473
+ 16384      5000             3789.55            3789.29		   0.242515
+ 32768      5000             3791.64            3791.51		   0.121328
+ 65536      5000             3792.68            3792.65		   0.060682
+ 131072     5000             3793.26            3793.22		   0.030346
+ 262144     5000             3793.37            3793.36		   0.015173
+ 524288     5000             3793.63            3793.62		   0.007587
+ 1048576    5000             3793.72            3793.72		   0.003794
+ 2097152    5000             3793.76            3793.76		   0.001897
+ 4194304    5000             3793.77            3793.77		   0.000948
+ 8388608    5000             3793.78            3793.78		   0.000474
+---------------------------------------------------------------------------------------
+
+Finished.
