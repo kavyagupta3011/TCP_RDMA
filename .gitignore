@@ -19,3 +19,4 @@ mpi-bw
 # Python caches
 __pycache__/
 *.pyc
+diagrams/
